@@ -146,6 +146,36 @@
       cursor: pointer;
     }
 
+    /* ── AR Toggle Bar ── */
+    #ar-toggles {
+      position: absolute;
+      bottom: calc(var(--tab-h) + var(--safe-bottom) + 12px);
+      left: 50%; transform: translateX(-50%);
+      display: flex; gap: 8px;
+      z-index: 90;
+      pointer-events: auto;
+    }
+    .tog-btn {
+      display: flex; align-items: center; gap: 4px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      border: 1px solid rgba(126,184,247,0.25);
+      background: rgba(10,10,30,0.65);
+      color: #555;
+      font-size: 12px;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: all 0.2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .tog-btn.active {
+      color: var(--accent);
+      border-color: rgba(126,184,247,0.6);
+      background: rgba(30,50,100,0.65);
+    }
+    .tog-btn span { font-size: 11px; }
+
     /* ── Popup ── */
     #popup-overlay {
       position: fixed; inset: 0;
@@ -291,6 +321,7 @@
   <div id="ar-view" class="active">
     <video id="camera-video" autoplay playsinline muted></video>
     <canvas id="sky-canvas"></canvas>
+    <div id="ar-toggles"></div>
     <div id="ar-hud">
       <div class="hud-chip" id="hud-dir">--</div>
       <div class="hud-chip" id="hud-time">--:--</div>
