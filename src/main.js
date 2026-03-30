@@ -8,6 +8,7 @@ import { updatePlanetsScreen } from './planets.js';
 import { updateWeatherScreen } from './observation.js';
 import { showPopup, hidePopup, initTabs, azToCompass, nowTimeStr } from './ui.js';
 import { getPlanetPositions, getMoonPosition, getMoonPhase, raDecToAltAz } from './astronomy.js';
+import { renderEventsScreen } from './events.js';
 
 // ── State ────────────────────────────────────────────────────────────────────
 const state = {
@@ -177,9 +178,17 @@ function switchTab(tab) {
   if (tab === 'moon'    && state.lat) updateMoonScreen(state.lat, state.lon);
   if (tab === 'planets' && state.lat) updatePlanetsScreen(state.lat, state.lon);
   if (tab === 'weather' && state.lat) updateWeatherScreen(state.lat, state.lon);
-  if (tab === 'events') renderEvents();
+  if (tab === 'events') renderEventsScreen(Number(document.getElementById('event-range-select')?.value ?? 180));
 }
 initTabs(switchTab);
+
+// 이벤트 필터/기간 변경 → 즉시 재렌더
+document.getElementById('event-filter-select')?.addEventListener('change', () => {
+  renderEventsScreen(Number(document.getElementById('event-range-select')?.value ?? 180));
+});
+document.getElementById('event-range-select')?.addEventListener('change', () => {
+  renderEventsScreen(Number(document.getElementById('event-range-select')?.value ?? 180));
+});
 
 // ── Canvas tap ────────────────────────────────────────────────────────────────
 canvas.addEventListener('click', (e) => {
@@ -214,35 +223,6 @@ canvas.addEventListener('click', (e) => {
 popupOverlay.addEventListener('click', (e) => { if (e.target === popupOverlay) hidePopup(); });
 popupClose.addEventListener('click', hidePopup);
 
-// ── Events screen ─────────────────────────────────────────────────────────────
-const EVENTS = [
-  { title: '페르세우스 유성우',  date: '2026-08-12', desc: '시간당 최대 100개 이상.' },
-  { title: '토성 충',           date: '2026-08-27', desc: '토성 고리 선명하게 관측 가능.' },
-  { title: '개기 월식',         date: '2026-09-07', desc: '아시아에서 관측 가능.' },
-  { title: '목성 충',           date: '2026-09-26', desc: '목성 관측 최적.' },
-  { title: '레오니드 유성우',   date: '2026-11-17', desc: '사자자리 방향 유성우.' },
-  { title: '쌍둥이자리 유성우', date: '2026-12-14', desc: '연중 가장 풍성한 유성우.' },
-];
-
-function renderEvents() {
-  const list = document.getElementById('event-list');
-  list.innerHTML = '';
-  const now = new Date();
-  EVENTS.sort((a, b) => new Date(a.date) - new Date(b.date)).forEach((ev) => {
-    const d    = new Date(ev.date);
-    const days = Math.ceil((d - now) / 86400000);
-    if (days < -1) return;
-    const card = document.createElement('div');
-    card.className = 'event-card';
-    card.innerHTML = `
-      <div class="event-title">${ev.title}</div>
-      <div class="event-date">${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일</div>
-      <span class="event-countdown">${days <= 0 ? '오늘!' : `D-${days}`}</span>
-      <p style="margin-top:10px;font-size:13px;color:#7986cb;line-height:1.5">${ev.desc}</p>
-    `;
-    list.appendChild(card);
-  });
-}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
