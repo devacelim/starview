@@ -1,0 +1,14 @@
+{
+  "name": "starview",
+  "version": "1.0.0",
+  "description": "AR 별자리·달·행성 관측 PWA",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'Static site — no build step needed'",
+    "deploy": "vercel --prod"
+  },
+  "devDependencies": {
+    "vercel": "^37.0.0"
+  }
+}
