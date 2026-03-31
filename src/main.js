@@ -2,7 +2,7 @@
  * main.js — StarView app entry point
  */
 
-const APP_VERSION = 'v1.9';
+const APP_VERSION = 'v2.0';
 
 import { loadSkyData, renderSky, hitTest, getStarsData, getConstsData } from './skymap.js';
 import { updateMoonScreen } from './moon.js';
@@ -24,6 +24,7 @@ const state = {
   arMode: 'virtual',
   fov: 60,   // horizontal field-of-view in degrees (zoom)
   toggles: { stars: true, constellations: true, moon: true, planets: true },
+  searchTarget: null,  // { az, alt, name, icon } — mobile direction target
 };
 
 let currentTab = 'ar';
@@ -153,7 +154,7 @@ window.addEventListener('deviceorientationabsolute', (e) => {
   hasAbsoluteSensor = true;
   hasSensor = true;
   state.deviceAz   = e.alpha  ?? 0;
-  state.deviceAlt  = 90 - (e.beta  ?? 90);   // portrait upright(β=90)→0°, tilt back→positive
+  state.deviceAlt  = (e.beta ?? 90) - 90;   // portrait upright(β=90)→0°, tilt back(β↑)→positive
   state.deviceRoll = e.gamma  ?? 0;
 }, true);
 
@@ -181,7 +182,7 @@ window.addEventListener('deviceorientation', (e) => {
 
   hasSensor = true;
   state.deviceAz   = az;
-  state.deviceAlt  = 90 - e.beta;   // portrait upright(β=90)→0°, tilt back→positive
+  state.deviceAlt  = e.beta - 90;   // portrait upright(β=90)→0°, tilt back(β↑)→positive
   state.deviceRoll = e.gamma ?? 0;
 }, true);
 
@@ -366,6 +367,13 @@ function _localUpdate(now = new Date()) {
 }
 
 // ── Render loop ───────────────────────────────────────────────────────────────
+const _targetHud     = document.getElementById('target-hud');
+const _targetHudInfo = document.getElementById('target-hud-info');
+const _targetHudClose = document.getElementById('target-hud-close');
+if (_targetHudClose) {
+  _targetHudClose.addEventListener('click', () => { state.searchTarget = null; });
+}
+
 function renderLoop() {
   state.date = new Date();
 
@@ -382,6 +390,32 @@ function renderLoop() {
       const altSign = state.deviceAlt >= 0 ? '↑' : '↓';
       hudObs.textContent = `${altSign}${Math.abs(Math.round(state.deviceAlt))}°`;
     }
+
+    // ── Search target direction HUD ────────────────────────────────────────
+    if (_targetHud) {
+      if (state.searchTarget) {
+        _targetHud.style.display = 'flex';
+        const t = state.searchTarget;
+        const dAz  = ((t.az - state.deviceAz + 540) % 360) - 180;
+        const dAlt = t.alt - state.deviceAlt;
+        const dist = Math.sqrt(dAz * dAz + dAlt * dAlt);
+        if (dist < 12) {
+          _targetHudInfo.textContent = `${t.icon || '✦'} ${t.name}  발견! ✓`;
+          _targetHud.classList.add('found');
+        } else {
+          _targetHud.classList.remove('found');
+          const azDir  = dAz  > 0 ? '→' : '←';
+          const altDir = dAlt > 0 ? '↑' : '↓';
+          _targetHudInfo.textContent = `${t.icon || '✦'} ${t.name}  ${azDir} ${Math.abs(Math.round(dAz))}°  ${altDir} ${Math.abs(Math.round(dAlt))}°`;
+        }
+      } else {
+        _targetHud.style.display = 'none';
+        _targetHud.classList.remove('found');
+      }
+    }
+  } else {
+    // Hide target HUD when not on AR tab
+    if (_targetHud) _targetHud.style.display = 'none';
   }
 
   requestAnimationFrame(renderLoop);
@@ -541,15 +575,18 @@ function getObjectAltAz(item) {
     return { az: state.moon.azimuth, alt: state.moon.altitude };
   if (item.type === 'planet' && item.data)
     return { az: item.data.azimuth, alt: item.data.altitude };
-  if (item.type === 'star')
-    return raDecToAltAz(item.ra, item.dec, state.date, state.lat, state.lon);
+  if (item.type === 'star') {
+    const r = raDecToAltAz(item.ra, item.dec, state.date, state.lat, state.lon);
+    return { az: r.azimuth, alt: r.altitude };
+  }
   if (item.type === 'constellation') {
     const members = (state.stars || getStarsData())
       .filter((s) => s.constellation?.toUpperCase() === item.id.toUpperCase() && s.mag < 5);
     if (!members.length) return null;
     const ra  = members.reduce((s, m) => s + m.ra,  0) / members.length;
     const dec = members.reduce((s, m) => s + m.dec, 0) / members.length;
-    return raDecToAltAz(ra, dec, state.date, state.lat, state.lon);
+    const r = raDecToAltAz(ra, dec, state.date, state.lat, state.lon);
+    return { az: r.azimuth, alt: r.altitude };
   }
   return null;
 }
@@ -603,9 +640,15 @@ function renderSearchResults(query, container, onClose) {
     `;
     el.addEventListener('click', () => {
       if (!validPos) { onClose(); return; }
-      onClose();
-      // 지평선 아래 오브젝트도 flyTo (지도에서 위치 확인 가능)
-      flyTo(pos.az, pos.alt);
+      if (hasSensor) {
+        // 모바일: 자이로스코프가 있으면 방향 안내 모드
+        state.searchTarget = { az: pos.az, alt: pos.alt, name: item.name, icon: item.icon };
+        onClose();
+      } else {
+        // 데스크탑: flyTo 애니메이션
+        onClose();
+        flyTo(pos.az, pos.alt);
+      }
     });
     container.appendChild(el);
   });

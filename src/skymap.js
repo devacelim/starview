@@ -155,6 +155,72 @@ function drawPlanetEdgeArrow(ctx, W, H, projX, projY, r, planet, cfg) {
   ctx.restore();
 }
 
+/**
+ * Draw edge-arrow badge for a generic search target (star/moon/constellation).
+ */
+function drawSearchTargetEdgeArrow(ctx, W, H, projX, projY, name, icon) {
+  const cx = W / 2, cy = H / 2;
+  const angle = Math.atan2(projY - cy, projX - cx);
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+
+  const m = 44;
+  let t = Infinity;
+  if (cos > 1e-9)  t = Math.min(t, (W - m - cx) / cos);
+  if (cos < -1e-9) t = Math.min(t, (m - cx) / cos);
+  if (sin > 1e-9)  t = Math.min(t, (H - m - cy) / sin);
+  if (sin < -1e-9) t = Math.min(t, (m - cy) / sin);
+  if (!isFinite(t) || t <= 0) return;
+
+  const bx = cx + cos * t;
+  const by = cy + sin * t;
+  const br = 22;
+
+  ctx.save();
+
+  // Badge background
+  ctx.beginPath();
+  ctx.arc(bx, by, br, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,8,24,0.85)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,220,80,0.9)';
+  ctx.lineWidth   = 1.8;
+  ctx.stroke();
+
+  // Icon
+  ctx.font         = `${Math.round(br * 0.85)}px -apple-system, sans-serif`;
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle    = 'rgba(255,220,80,0.95)';
+  ctx.fillText(icon || '✦', bx, by);
+
+  // Arrow
+  const ax = bx + cos * (br + 7);
+  const ay = by + sin * (br + 7);
+  ctx.save();
+  ctx.translate(ax, ay);
+  ctx.rotate(angle);
+  ctx.fillStyle = 'rgba(255,220,80,0.9)';
+  ctx.beginPath();
+  ctx.moveTo(6, 0);
+  ctx.lineTo(-4, -4);
+  ctx.lineTo(-4,  4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // Name label below badge
+  ctx.font         = 'bold 9px -apple-system, sans-serif';
+  ctx.textBaseline = 'top';
+  ctx.strokeStyle  = 'rgba(0,0,20,0.9)';
+  ctx.lineWidth    = 2;
+  ctx.lineJoin     = 'round';
+  ctx.strokeText(name, bx, by + br + 3);
+  ctx.fillStyle = 'rgba(255,220,80,0.9)';
+  ctx.fillText(name, bx, by + br + 3);
+
+  ctx.restore();
+}
+
 let starsData  = [];
 let constsData = [];
 
@@ -566,6 +632,34 @@ export function renderSky(canvas, state) {
         drawPlanetEdgeArrow(ctx, W, H, pos.x, pos.y, r, p, cfg);
       }
     });
+  }
+
+  // ── Search Target Highlight ──────────────────────────────────────────────
+  if (state.searchTarget) {
+    const { az, alt, name, icon } = state.searchTarget;
+    const tPos = project(alt, az, deviceAz, deviceAlt, W, H, fov);
+    const now  = Date.now();
+    const pulse = (Math.sin(now / 300) + 1) / 2;
+    const onScreen = tPos.x > -60 && tPos.x < W + 60 && tPos.y > -60 && tPos.y < H + 60;
+
+    if (onScreen) {
+      // Pulsating gold ring around the target
+      ctx.save();
+      ctx.strokeStyle = `rgba(255,220,80,${0.65 + pulse * 0.35})`;
+      ctx.lineWidth   = 2;
+      ctx.shadowColor = 'rgba(255,220,80,0.7)';
+      ctx.shadowBlur  = 12 + pulse * 8;
+      ctx.beginPath();
+      ctx.arc(tPos.x, tPos.y, 28 + pulse * 8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 0.45;
+      ctx.beginPath();
+      ctx.arc(tPos.x, tPos.y, 16 + pulse * 4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      drawSearchTargetEdgeArrow(ctx, W, H, tPos.x, tPos.y, name, icon);
+    }
   }
 }
 
