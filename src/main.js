@@ -2,7 +2,7 @@
  * main.js — StarView app entry point
  */
 
-const APP_VERSION = 'v1.4';
+const APP_VERSION = 'v1.5';
 
 import { loadSkyData, renderSky, hitTest } from './skymap.js';
 import { updateMoonScreen } from './moon.js';
@@ -85,7 +85,27 @@ modeBtn.addEventListener('click', () => {
 });
 
 // ── Permissions ───────────────────────────────────────────────────────────────
-permBtn.addEventListener('click', requestAllPermissions);
+// iOS Safari 규칙: DeviceOrientationEvent.requestPermission()은 반드시
+// 사용자 제스처 핸들러에서 첫 번째 await이어야 함.
+// geolocation/camera await 이후에 호출하면 제스처 컨텍스트가 만료되어
+// 권한 팝업이 아예 뜨지 않음.
+permBtn.addEventListener('click', async () => {
+  // ① iOS 자이로스코프 권한 — 제일 먼저, 다른 await 없이 호출
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const r = await DeviceOrientationEvent.requestPermission();
+      if (r !== 'granted') {
+        alert('자이로스코프 권한이 거부되었습니다. AR 방향 기능이 제한됩니다.');
+      }
+    } catch (e) {
+      console.warn('DeviceOrientation permission:', e);
+    }
+  }
+
+  // ② 위치·카메라는 이후에 요청해도 무관
+  await requestAllPermissions();
+});
 
 async function requestAllPermissions() {
   try {
@@ -115,13 +135,6 @@ async function requestAllPermissions() {
     state.arMode = 'virtual';
     modeIcon.textContent = '📷';
     modeBtn.title = 'AR 카메라 모드로 전환';
-  }
-
-  if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
-    try {
-      const r = await DeviceOrientationEvent.requestPermission();
-      if (r !== 'granted') alert('자이로스코프 권한이 거부되었습니다. AR 방향 기능이 제한됩니다.');
-    } catch (e) { console.warn('DeviceOrientation:', e); }
   }
 
   permOverlay.style.display = 'none';
