@@ -2,7 +2,7 @@
  * main.js — StarView app entry point
  */
 
-const APP_VERSION = 'v1.1';
+const APP_VERSION = 'v1.2';
 
 import { loadSkyData, renderSky, hitTest } from './skymap.js';
 import { updateMoonScreen } from './moon.js';
@@ -133,23 +133,24 @@ async function requestAllPermissions() {
 // iOS (deviceorientation): e.webkitCompassHeading = clockwise azimuth from North
 // Both are already in standard compass bearing — NO inversion needed.
 
+// deviceorientationabsolute: Chrome Android — only fires on real hardware, no isMobile guard needed
 window.addEventListener('deviceorientationabsolute', (e) => {
-  if (!isMobile || !state.permGranted) return;
+  if (!state.permGranted) return;
   hasSensor = true;
   state.deviceAz   = e.alpha  ?? 0;
   state.deviceAlt  = (e.beta  ?? 90) - 90;
   state.deviceRoll = e.gamma  ?? 0;
 }, true);
 
+// deviceorientation: iOS (webkitCompassHeading) or fallback
 window.addEventListener('deviceorientation', (e) => {
-  if (!isMobile || !state.permGranted) return;
-  if (hasSensor) return; // prefer absolute event
+  if (!state.permGranted || hasSensor) return;
 
-  // iOS: webkitCompassHeading = CW from true North
   const hasCompass = typeof e.webkitCompassHeading === 'number';
   const az = hasCompass ? e.webkitCompassHeading : (e.alpha ?? 0);
+  // Skip spurious desktop events (no compass, no tilt data, all zeros)
   if (!hasCompass && e.beta == null) return;
-  if (az === 0 && (e.beta === 0 || e.beta == null) && (e.gamma === 0 || e.gamma == null)) return;
+  if (!hasCompass && az === 0 && (e.beta === 0 || e.beta == null)) return;
 
   hasSensor = true;
   state.deviceAz   = az;
@@ -209,27 +210,51 @@ window.addEventListener('keydown', (e) => {
   if (e.key === '-')                  state.fov = Math.min(120, state.fov + 5);
 });
 
-// Pinch-to-zoom (mobile)
-let lastPinchDist = null;
+// ── Touch: swipe(pan) + pinch(zoom) ──────────────────────────────────────────
+let touchLastX = 0, touchLastY = 0, lastPinchDist = null;
+
 canvas.addEventListener('touchstart', (e) => {
-  if (e.touches.length === 2) {
+  if (e.touches.length === 1) {
+    touchLastX = e.touches[0].clientX;
+    touchLastY = e.touches[0].clientY;
+    lastPinchDist = null;
+  } else if (e.touches.length === 2) {
     lastPinchDist = Math.hypot(
       e.touches[0].clientX - e.touches[1].clientX,
       e.touches[0].clientY - e.touches[1].clientY
     );
   }
 }, { passive: true });
+
 canvas.addEventListener('touchmove', (e) => {
-  if (e.touches.length === 2 && lastPinchDist !== null) {
+  if (e.touches.length === 1 && !hasSensor) {
+    // 단일 터치 스와이프 — 센서 없을 때 패닝
+    const dx = e.touches[0].clientX - touchLastX;
+    const dy = e.touches[0].clientY - touchLastY;
+    state.deviceAz  = (state.deviceAz  - dx * 0.3 + 360) % 360;
+    state.deviceAlt = Math.max(-85, Math.min(85, state.deviceAlt + dy * 0.3));
+    touchLastX = e.touches[0].clientX;
+    touchLastY = e.touches[0].clientY;
+  } else if (e.touches.length === 2) {
+    e.preventDefault(); // 브라우저 핀치 줌 차단
     const dist = Math.hypot(
       e.touches[0].clientX - e.touches[1].clientX,
       e.touches[0].clientY - e.touches[1].clientY
     );
-    state.fov = Math.max(15, Math.min(120, state.fov * (lastPinchDist / dist)));
+    if (lastPinchDist !== null) {
+      state.fov = Math.max(15, Math.min(120, state.fov * (lastPinchDist / dist)));
+    }
     lastPinchDist = dist;
   }
+}, { passive: false }); // passive:false 로 pinch preventDefault 허용
+
+canvas.addEventListener('touchend', (e) => {
+  if (e.touches.length < 2) lastPinchDist = null;
+  if (e.touches.length === 1) {
+    touchLastX = e.touches[0].clientX;
+    touchLastY = e.touches[0].clientY;
+  }
 }, { passive: true });
-canvas.addEventListener('touchend', () => { lastPinchDist = null; }, { passive: true });
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 function showTooltip(hit, x, y) {
