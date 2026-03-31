@@ -1,4 +1,4 @@
-const CACHE_NAME = 'starview-v1';
+const CACHE_NAME = 'starview-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -32,8 +32,7 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  // API 요청은 캐시 불가
-  if (url.pathname.startsWith('/api/')) return;
+  if (url.pathname.startsWith('/api/')) return; // API no-cache
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
@@ -48,7 +47,6 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// 푸시 알림
 self.addEventListener('push', (event) => {
   const data = event.data?.json() ?? { title: 'StarView', body: '천체 이벤트 알림' };
   event.waitUntil(

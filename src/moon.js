@@ -6,75 +6,49 @@ import { getMoonPhase, moonPhaseName, getMoonRiseSet } from './astronomy.js';
 
 /**
  * Draw moon phase on a canvas element.
- * @param {HTMLCanvasElement} canvas
- * @param {number} phase 0-1 (0=new, 0.5=full)
- * @param {number} illumination 0-1
+ * Algorithm: draw full lit circle, then overlay dark shadow on the unlit side.
+ *   - phase 0   = new moon  (all dark)
+ *   - phase 0.5 = full moon (all lit)
+ *   - phase 1   = new moon  (all dark)
  */
-export function drawMoon(canvas, phase, illumination) {
+export function drawMoon(canvas, phase) {
   const ctx = canvas.getContext('2d');
   const W = canvas.width;
   const H = canvas.height;
-  const R = Math.min(W, H) / 2 - 8;
+  const R  = Math.min(W, H) / 2 - 8;
   const cx = W / 2;
   const cy = H / 2;
 
   ctx.clearRect(0, 0, W, H);
 
-  // Dark side
+  // Outer glow
+  const glow = ctx.createRadialGradient(cx, cy, R * 0.7, cx, cy, R * 1.5);
+  glow.addColorStop(0, 'rgba(255,240,180,0)');
+  glow.addColorStop(1, 'rgba(255,240,180,0.06)');
   ctx.save();
   ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fill();
-  ctx.restore();
-
-  // Glow
-  const glow = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R * 1.4);
-  glow.addColorStop(0, 'rgba(220,220,180,0)');
-  glow.addColorStop(1, 'rgba(200,200,150,0.08)');
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, R * 1.4, 0, Math.PI * 2);
+  ctx.arc(cx, cy, R * 1.5, 0, Math.PI * 2);
   ctx.fillStyle = glow;
   ctx.fill();
   ctx.restore();
 
-  // Illuminated portion using clip
+  // 1. Draw fully lit circle (base)
+  const litGrad = ctx.createRadialGradient(cx - R * 0.2, cy - R * 0.2, R * 0.1, cx, cy, R);
+  litGrad.addColorStop(0, '#f8f4d0');
+  litGrad.addColorStop(0.5, '#d4cfa0');
+  litGrad.addColorStop(1, '#b0a870');
   ctx.save();
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.clip();
-
-  // Determine lit side direction
-  const waxing = phase < 0.5;
-  const phaseAngle = phase < 0.5 ? phase * 2 : (phase - 0.5) * 2;
-
-  // x-scale for the terminator ellipse
-  const ellipseX = R * Math.abs(1 - phaseAngle * 2);
-
-  ctx.beginPath();
-  if (waxing) {
-    // Right side lit
-    ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, false);
-    ctx.ellipse(cx, cy, ellipseX, R, 0, Math.PI / 2, -Math.PI / 2, true);
-  } else {
-    // Left side lit
-    ctx.arc(cx, cy, R, Math.PI / 2, -Math.PI / 2, false);
-    ctx.ellipse(cx, cy, ellipseX, R, 0, -Math.PI / 2, Math.PI / 2, true);
-  }
-  ctx.closePath();
-
-  const moonGrad = ctx.createRadialGradient(cx - R * 0.2, cy - R * 0.2, R * 0.1, cx, cy, R);
-  moonGrad.addColorStop(0, '#f5f5e0');
-  moonGrad.addColorStop(0.5, '#d4cfa0');
-  moonGrad.addColorStop(1, '#b0a870');
-  ctx.fillStyle = moonGrad;
+  ctx.fillStyle = litGrad;
   ctx.fill();
-
   ctx.restore();
 
-  // Crater details (subtle circles)
-  drawCraters(ctx, cx, cy, R, phase);
+  // 2. Draw dark shadow overlay (unlit portion)
+  _drawShadow(ctx, cx, cy, R, phase, '#0d1020');
+
+  // Craters
+  _drawCraters(ctx, cx, cy, R, phase);
 
   // Border
   ctx.save();
@@ -86,45 +60,18 @@ export function drawMoon(canvas, phase, illumination) {
   ctx.restore();
 }
 
-function drawCraters(ctx, cx, cy, R, phase) {
-  const craters = [
-    { rx: 0.2, ry: -0.1, r: 0.08 },
-    { rx: -0.3, ry: 0.2, r: 0.06 },
-    { rx: 0.1, ry: 0.35, r: 0.05 },
-    { rx: -0.15, ry: -0.3, r: 0.07 },
-    { rx: 0.35, ry: 0.1, r: 0.04 },
-  ];
-  ctx.save();
-  ctx.globalAlpha = 0.15;
-  craters.forEach((c) => {
-    ctx.beginPath();
-    ctx.arc(cx + c.rx * R, cy + c.ry * R, c.r * R, 0, Math.PI * 2);
-    ctx.strokeStyle = '#888';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  });
-  ctx.restore();
-}
-
 /**
- * Render mini moon phase icon for calendar
+ * Draw the dark shadow that covers the unlit side.
+ * phaseFactor: 0 = new moon (all shadow), 1 = full moon (no shadow)
+ * For waxing (0→0.5): shadow on LEFT
+ * For waning (0.5→1): shadow on RIGHT
  */
-export function drawMiniMoon(canvas, phase) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width;
-  const R = W / 2 - 1;
-  const cx = W / 2, cy = W / 2;
+function _drawShadow(ctx, cx, cy, R, phase, darkColor) {
+  if (phase === 0.5) return; // full moon — no shadow
 
-  ctx.clearRect(0, 0, W, W);
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.fillStyle = '#111';
-  ctx.fill();
-
-  const waxing = phase < 0.5;
-  const phaseAngle = phase < 0.5 ? phase * 2 : (phase - 0.5) * 2;
-  const ellipseX = R * Math.abs(1 - phaseAngle * 2);
+  // phaseFactor: 0 at new moon, 1 at full moon, 0 at new moon again
+  const pf = phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+  const shadowX = R * (1 - pf); // 0 at full moon, R at new moon
 
   ctx.save();
   ctx.beginPath();
@@ -132,17 +79,65 @@ export function drawMiniMoon(canvas, phase) {
   ctx.clip();
 
   ctx.beginPath();
-  if (waxing) {
-    ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, false);
-    ctx.ellipse(cx, cy, ellipseX, R, 0, Math.PI / 2, -Math.PI / 2, true);
+  if (phase < 0.5) {
+    // Shadow on LEFT
+    // counterclockwise arc = left semicircle (top → left → bottom)
+    ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, true);
+    // Close with clockwise ellipse (bottom → right side → top)
+    ctx.ellipse(cx, cy, shadowX, R, 0, Math.PI / 2, -Math.PI / 2, false);
   } else {
-    ctx.arc(cx, cy, R, Math.PI / 2, -Math.PI / 2, false);
-    ctx.ellipse(cx, cy, ellipseX, R, 0, -Math.PI / 2, Math.PI / 2, true);
+    // Shadow on RIGHT
+    // clockwise arc = right semicircle (top → right → bottom)
+    ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, false);
+    // Close with counterclockwise ellipse (bottom → left side → top)
+    ctx.ellipse(cx, cy, shadowX, R, 0, Math.PI / 2, -Math.PI / 2, true);
   }
   ctx.closePath();
+  ctx.fillStyle = darkColor;
+  ctx.fill();
+  ctx.restore();
+}
+
+function _drawCraters(ctx, cx, cy, R, phase) {
+  const craters = [
+    { rx: 0.2, ry: -0.1, r: 0.08 },
+    { rx: -0.3, ry: 0.2,  r: 0.06 },
+    { rx: 0.1,  ry: 0.35, r: 0.05 },
+    { rx: -0.15, ry: -0.3, r: 0.07 },
+    { rx: 0.35, ry: 0.1,  r: 0.04 },
+  ];
+  ctx.save();
+  ctx.globalAlpha = 0.12;
+  craters.forEach((c) => {
+    ctx.beginPath();
+    ctx.arc(cx + c.rx * R, cy + c.ry * R, c.r * R, 0, Math.PI * 2);
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+/**
+ * Mini moon icon for AR overlay and calendar
+ */
+export function drawMiniMoon(canvas, phase) {
+  const ctx = canvas.getContext('2d');
+  const W  = canvas.width;
+  const R  = W / 2 - 1;
+  const cx = W / 2, cy = W / 2;
+
+  ctx.clearRect(0, 0, W, W);
+
+  // Lit base
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
   ctx.fillStyle = '#d4cfa0';
   ctx.fill();
   ctx.restore();
+
+  _drawShadow(ctx, cx, cy, R, phase, '#111');
 }
 
 /**
@@ -153,7 +148,7 @@ export function updateMoonScreen(lat, lon) {
   const { phase, illumination } = getMoonPhase(now);
 
   const moonCanvas = document.getElementById('moon-canvas');
-  drawMoon(moonCanvas, phase, illumination);
+  drawMoon(moonCanvas, phase);
 
   document.getElementById('moon-phase-name').textContent = moonPhaseName(phase);
   document.getElementById('moon-illumination').textContent = `${Math.round(illumination * 100)}%`;

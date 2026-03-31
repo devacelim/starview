@@ -13,17 +13,18 @@ import { renderEventsScreen } from './events.js';
 // ── State ─────────────────────────────────────────────────────────────────────
 const state = {
   lat: null, lon: null,
-  deviceAz: 0, deviceAlt: 0, deviceRoll: 0,
+  deviceAz: 0, deviceAlt: 30, deviceRoll: 0,
   planets: [],
   moon: null,
-  stars: null,      // populated by API; null = use local catalog
+  stars: null,
   date: new Date(),
   permGranted: false,
-  arMode: 'ar',     // 'ar' | 'virtual'
+  arMode: 'ar',
   toggles: { stars: true, constellations: true, moon: true, planets: true },
 };
 
 let currentTab = 'ar';
+let hasSensor   = false;  // becomes true when any orientation event fires
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const permOverlay  = document.getElementById('perm-overlay');
@@ -37,6 +38,7 @@ const popupOverlay = document.getElementById('popup-overlay');
 const popupClose   = document.getElementById('popup-close');
 const modeBtn      = document.getElementById('mode-btn');
 const modeIcon     = document.getElementById('mode-icon');
+const tooltip      = document.getElementById('sky-tooltip');
 
 // ── Service Worker ────────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
@@ -70,16 +72,15 @@ function buildToggles() {
 modeBtn.addEventListener('click', () => {
   state.arMode = state.arMode === 'ar' ? 'virtual' : 'ar';
   const isAR = state.arMode === 'ar';
-  video.style.display     = isAR ? '' : 'none';
-  modeIcon.textContent    = isAR ? '🔭' : '📷';
-  modeBtn.title           = isAR ? '가상 하늘 모드로 전환' : 'AR 카메라 모드로 전환';
+  video.style.display  = isAR ? '' : 'none';
+  modeIcon.textContent = isAR ? '🔭' : '📷';
+  modeBtn.title        = isAR ? '가상 하늘 모드로 전환' : 'AR 카메라 모드로 전환';
 });
 
 // ── Permissions ───────────────────────────────────────────────────────────────
 permBtn.addEventListener('click', requestAllPermissions);
 
 async function requestAllPermissions() {
-  // 1. Geolocation
   try {
     await new Promise((resolve, reject) =>
       navigator.geolocation.getCurrentPosition(
@@ -93,7 +94,6 @@ async function requestAllPermissions() {
     return;
   }
 
-  // 2. Camera
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
@@ -106,7 +106,6 @@ async function requestAllPermissions() {
     return;
   }
 
-  // 3. Gyroscope (iOS 13+ requires gesture)
   if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
     try {
       const r = await DeviceOrientationEvent.requestPermission();
@@ -120,32 +119,115 @@ async function requestAllPermissions() {
 }
 
 // ── Device Orientation ────────────────────────────────────────────────────────
-// iOS does not provide North-referenced alpha — use webkitCompassHeading.
-// Android with deviceorientationabsolute gives North-referenced alpha,
-// but counterclockwise, so convert: azimuth = (360 - alpha) % 360.
-
-let hasAbsoluteOrientation = false;
+// Chrome Android (deviceorientationabsolute): e.alpha = clockwise azimuth from North
+// iOS (deviceorientation): e.webkitCompassHeading = clockwise azimuth from North
+// Both are already in standard compass bearing — NO inversion needed.
 
 window.addEventListener('deviceorientationabsolute', (e) => {
-  hasAbsoluteOrientation = true;
+  hasSensor = true;
   if (!state.permGranted) return;
-  // alpha: CCW from North → convert to CW azimuth
-  state.deviceAz   = (360 - (e.alpha ?? 0)) % 360;
+  state.deviceAz   = e.alpha  ?? 0;         // Chrome Android: already CW from North
   state.deviceAlt  = (e.beta  ?? 90) - 90;
-  state.deviceRoll = e.gamma ?? 0;
+  state.deviceRoll = e.gamma  ?? 0;
 }, true);
 
 window.addEventListener('deviceorientation', (e) => {
-  if (!state.permGranted || hasAbsoluteOrientation) return;
-  // iOS: webkitCompassHeading = CW azimuth from true North
-  // Fallback for other browsers: use alpha as-is
-  const heading = typeof e.webkitCompassHeading === 'number'
+  if (!state.permGranted) return;
+  if (hasSensor) return; // prefer absolute event
+
+  // iOS: webkitCompassHeading = CW from true North
+  const az = typeof e.webkitCompassHeading === 'number'
     ? e.webkitCompassHeading
     : (e.alpha ?? 0);
-  state.deviceAz   = heading;
+
+  if (az !== 0 || e.beta !== null) hasSensor = true;
+  state.deviceAz   = az;
   state.deviceAlt  = (e.beta  ?? 90) - 90;
-  state.deviceRoll = e.gamma ?? 0;
+  state.deviceRoll = e.gamma  ?? 0;
 }, true);
+
+// ── Desktop mouse drag (when no physical sensor) ──────────────────────────────
+let isDragging = false, dragLastX = 0, dragLastY = 0;
+
+canvas.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
+  isDragging = true;
+  dragLastX  = e.clientX;
+  dragLastY  = e.clientY;
+});
+document.addEventListener('mouseup', () => { isDragging = false; });
+canvas.addEventListener('mousemove', (e) => {
+  // Drag to look around (desktop only — overridden by sensor on mobile)
+  if (isDragging && !hasSensor) {
+    const dx = e.clientX - dragLastX;
+    const dy = e.clientY - dragLastY;
+    state.deviceAz  = (state.deviceAz  - dx * 0.3 + 360) % 360;
+    state.deviceAlt = Math.max(-85, Math.min(85, state.deviceAlt + dy * 0.3));
+  }
+  dragLastX = e.clientX;
+  dragLastY = e.clientY;
+
+  // Hover tooltip
+  if (currentTab !== 'ar') return;
+  const rect = canvas.getBoundingClientRect();
+  const hit  = hitTest(canvas, e.clientX - rect.left, e.clientY - rect.top, state);
+  if (hit) {
+    showTooltip(hit, e.clientX, e.clientY);
+  } else {
+    hideTooltip();
+  }
+});
+canvas.addEventListener('mouseleave', hideTooltip);
+
+// Scroll to look around (desktop)
+canvas.addEventListener('wheel', (e) => {
+  if (hasSensor) return;
+  e.preventDefault();
+  state.deviceAz  = (state.deviceAz  - e.deltaX * 0.15 + 360) % 360;
+  state.deviceAlt = Math.max(-85, Math.min(85, state.deviceAlt - e.deltaY * 0.15));
+}, { passive: false });
+
+// Arrow keys
+window.addEventListener('keydown', (e) => {
+  if (currentTab !== 'ar' || hasSensor) return;
+  const step = 3;
+  if (e.key === 'ArrowLeft')  state.deviceAz  = (state.deviceAz  - step + 360) % 360;
+  if (e.key === 'ArrowRight') state.deviceAz  = (state.deviceAz  + step) % 360;
+  if (e.key === 'ArrowUp')    state.deviceAlt = Math.min(85, state.deviceAlt + step);
+  if (e.key === 'ArrowDown')  state.deviceAlt = Math.max(-85, state.deviceAlt - step);
+});
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+function showTooltip(hit, x, y) {
+  let name, detail;
+  if (hit.type === 'star') {
+    const s = hit.data;
+    name   = s.nameKo || s.name;
+    const mag = s.mag >= 0 ? `+${s.mag}` : `${s.mag}`;
+    detail = `${mag}등급${s.constellation ? ' · ' + s.constellation : ''}`;
+  } else if (hit.type === 'moon') {
+    const m = hit.data;
+    name   = '달';
+    detail = `조도 ${Math.round(m.illumination * 100)}% · 고도 ${m.altitude.toFixed(0)}°`;
+  } else if (hit.type === 'planet') {
+    const p = hit.data;
+    name   = `${p.icon} ${p.name}`;
+    detail = `고도 ${p.altitude.toFixed(0)}° · ${p.mag >= 0 ? '+' : ''}${p.mag}등급`;
+  } else return;
+
+  tooltip.innerHTML = `<div class="tt-name">${name}</div><div class="tt-detail">${detail}</div>`;
+  tooltip.style.display = 'block';
+
+  const pad = 14;
+  const tw  = tooltip.offsetWidth;
+  const th  = tooltip.offsetHeight;
+  tooltip.style.left = `${Math.min(x + pad, window.innerWidth  - tw  - 8)}px`;
+  tooltip.style.top  = `${Math.max(y - th - pad, 8)}px`;
+}
+
+function hideTooltip() {
+  if (tooltip) tooltip.style.display = 'none';
+}
 
 // ── Geolocation watch ─────────────────────────────────────────────────────────
 function watchPosition() {
@@ -164,14 +246,10 @@ function resizeCanvas() {
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-// ── Update celestial objects ───────────────────────────────────────────────────
-// Primary: fetch from /api/celestial (Supabase-backed backend).
-// Fallback: local astronomy.js calculations.
-
+// ── Update celestial objects (API → fallback local) ───────────────────────────
 async function updateSkyObjects() {
   if (!state.lat) return;
   const now = new Date();
-
   try {
     const res = await fetch(
       `/api/celestial?lat=${state.lat}&lon=${state.lon}&ts=${now.getTime()}`,
@@ -184,17 +262,16 @@ async function updateSkyObjects() {
     state.moon    = data.moon;
   } catch (err) {
     console.warn('[StarView] API fallback:', err.message);
-    localUpdateSkyObjects(now);
+    _localUpdate(now);
   }
 }
 
-function localUpdateSkyObjects(now = new Date()) {
+function _localUpdate(now = new Date()) {
   state.planets = getPlanetPositions(now, state.lat, state.lon);
-  const { ra, dec }          = getMoonPosition(now);
+  const { ra, dec }           = getMoonPosition(now);
   const { altitude, azimuth } = raDecToAltAz(ra, dec, now, state.lat, state.lon);
   const { phase, illumination } = getMoonPhase(now);
   state.moon = { ra, dec, altitude, azimuth, phase, illumination };
-  // state.stars stays null → skymap falls back to local catalog
 }
 
 // ── Render loop ───────────────────────────────────────────────────────────────
@@ -222,6 +299,7 @@ const screens = {
 
 function switchTab(tab) {
   currentTab = tab;
+  hideTooltip();
   Object.entries(screens).forEach(([id, el]) => el.classList.toggle('active', id === tab));
   if (tab === 'moon'    && state.lat) updateMoonScreen(state.lat, state.lon);
   if (tab === 'planets' && state.lat) updatePlanetsScreen(state.lat, state.lon);
@@ -237,8 +315,9 @@ document.getElementById('event-range-select')?.addEventListener('change', () => 
   renderEventsScreen(Number(document.getElementById('event-range-select')?.value ?? 180));
 });
 
-// ── Canvas tap → hit test ──────────────────────────────────────────────────────
+// ── Canvas tap → popup ────────────────────────────────────────────────────────
 canvas.addEventListener('click', (e) => {
+  hideTooltip();
   const rect = canvas.getBoundingClientRect();
   const hit  = hitTest(canvas, e.clientX - rect.left, e.clientY - rect.top, state);
   if (!hit) return;
