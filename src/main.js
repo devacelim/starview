@@ -2,6 +2,8 @@
  * main.js — StarView app entry point
  */
 
+const APP_VERSION = 'v1.1';
+
 import { loadSkyData, renderSky, hitTest } from './skymap.js';
 import { updateMoonScreen } from './moon.js';
 import { updatePlanetsScreen } from './planets.js';
@@ -102,8 +104,11 @@ async function requestAllPermissions() {
     video.srcObject = stream;
     await video.play();
   } catch {
-    alert('카메라 권한이 필요합니다.');
-    return;
+    // 카메라 없이도 가상 하늘 모드로 계속
+    video.style.display = 'none';
+    state.arMode = 'virtual';
+    modeIcon.textContent = '📷';
+    modeBtn.title = 'AR 카메라 모드로 전환';
   }
 
   if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
@@ -136,11 +141,15 @@ window.addEventListener('deviceorientation', (e) => {
   if (hasSensor) return; // prefer absolute event
 
   // iOS: webkitCompassHeading = CW from true North
-  const az = typeof e.webkitCompassHeading === 'number'
-    ? e.webkitCompassHeading
-    : (e.alpha ?? 0);
+  const hasCompass = typeof e.webkitCompassHeading === 'number';
+  const az = hasCompass ? e.webkitCompassHeading : (e.alpha ?? 0);
 
-  if (az !== 0 || e.beta !== null) hasSensor = true;
+  // 데스크탑 spurious 이벤트 무시: webkitCompassHeading 없고 beta도 null이면 실제 센서 아님
+  if (!hasCompass && e.beta == null) return;
+  // 모든 값이 0이면 초기화 중인 이벤트 — 무시
+  if (az === 0 && (e.beta === 0 || e.beta == null) && (e.gamma === 0 || e.gamma == null)) return;
+
+  hasSensor = true;
   state.deviceAz   = az;
   state.deviceAlt  = (e.beta  ?? 90) - 90;
   state.deviceRoll = e.gamma  ?? 0;
@@ -281,7 +290,7 @@ function renderLoop() {
   if (currentTab === 'ar') {
     renderSky(canvas, state);
     hudDir.textContent  = `${azToCompass(state.deviceAz)} ${Math.round(state.deviceAz)}°`;
-    hudTime.textContent = nowTimeStr();
+    hudTime.textContent = `${nowTimeStr()} ${APP_VERSION}`;
     hudObs.textContent  = `고도 ${Math.round(state.deviceAlt)}°`;
   }
 
@@ -301,7 +310,7 @@ function switchTab(tab) {
   currentTab = tab;
   hideTooltip();
   Object.entries(screens).forEach(([id, el]) => el.classList.toggle('active', id === tab));
-  if (tab === 'moon'    && state.lat) updateMoonScreen(state.lat, state.lon);
+  if (tab === 'moon'    && state.lat) updateMoonScreen(state.lat, state.lon, state.moon);
   if (tab === 'planets' && state.lat) updatePlanetsScreen(state.lat, state.lon);
   if (tab === 'weather' && state.lat) updateWeatherScreen(state.lat, state.lon);
   if (tab === 'events') renderEventsScreen(Number(document.getElementById('event-range-select')?.value ?? 180));

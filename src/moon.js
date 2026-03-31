@@ -143,9 +143,10 @@ export function drawMiniMoon(canvas, phase) {
 /**
  * Update the moon screen UI
  */
-export function updateMoonScreen(lat, lon) {
+export function updateMoonScreen(lat, lon, moonData) {
   const now = new Date();
-  const { phase, illumination } = getMoonPhase(now);
+  // API에서 가져온 데이터 우선, 없으면 로컬 계산
+  const { phase, illumination } = moonData ?? getMoonPhase(now);
 
   const moonCanvas = document.getElementById('moon-canvas');
   drawMoon(moonCanvas, phase);
