@@ -2,7 +2,7 @@
  * main.js — StarView app entry point
  */
 
-const APP_VERSION = 'v2.1';
+const APP_VERSION = 'v2.2';
 
 import { loadSkyData, renderSky, hitTest, getStarsData, getConstsData } from './skymap.js';
 import { updateMoonScreen } from './moon.js';
