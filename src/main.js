@@ -2,7 +2,7 @@
  * main.js — StarView app entry point
  */
 
-const APP_VERSION = 'v1.2';
+const APP_VERSION = 'v1.3';
 
 import { loadSkyData, renderSky, hitTest } from './skymap.js';
 import { updateMoonScreen } from './moon.js';
@@ -21,13 +21,14 @@ const state = {
   stars: null,
   date: new Date(),
   permGranted: false,
-  arMode: 'ar',
+  arMode: 'virtual',
   fov: 60,   // horizontal field-of-view in degrees (zoom)
   toggles: { stars: true, constellations: true, moon: true, planets: true },
 };
 
 let currentTab = 'ar';
-let hasSensor   = false;  // becomes true when any orientation event fires
+let hasSensor        = false; // true = 센서 있음 → 드래그 비활성
+let hasAbsoluteSensor = false; // true = deviceorientationabsolute 수신 중 → deviceorientation 무시
 
 // 모바일 여부 (터치 지원 = 물리 센서 있음)
 const isMobile = navigator.maxTouchPoints > 0;
@@ -133,26 +134,28 @@ async function requestAllPermissions() {
 // iOS (deviceorientation): e.webkitCompassHeading = clockwise azimuth from North
 // Both are already in standard compass bearing — NO inversion needed.
 
-// deviceorientationabsolute: Chrome Android — only fires on real hardware, no isMobile guard needed
+// Chrome Android: absolute compass, fires continuously
 window.addEventListener('deviceorientationabsolute', (e) => {
   if (!state.permGranted) return;
+  hasAbsoluteSensor = true;
   hasSensor = true;
   state.deviceAz   = e.alpha  ?? 0;
   state.deviceAlt  = (e.beta  ?? 90) - 90;
   state.deviceRoll = e.gamma  ?? 0;
 }, true);
 
-// deviceorientation: iOS (webkitCompassHeading) or fallback
+// iOS Safari/Edge: webkitCompassHeading, fires continuously
+// hasAbsoluteSensor 가 true 면 Android absolute 이벤트 우선 → 이 핸들러 건너뜀
 window.addEventListener('deviceorientation', (e) => {
-  if (!state.permGranted || hasSensor) return;
+  if (!state.permGranted) return;
+  if (hasAbsoluteSensor) return; // absolute 이벤트가 더 정확, 중복 처리 방지
 
   const hasCompass = typeof e.webkitCompassHeading === 'number';
   const az = hasCompass ? e.webkitCompassHeading : (e.alpha ?? 0);
-  // Skip spurious desktop events (no compass, no tilt data, all zeros)
-  if (!hasCompass && e.beta == null) return;
-  if (!hasCompass && az === 0 && (e.beta === 0 || e.beta == null)) return;
+  if (!hasCompass && e.beta == null) return;                          // 실제 센서 없음
+  if (!hasCompass && az === 0 && (e.beta === 0 || e.beta == null)) return; // 데스크탑 zero 이벤트
 
-  hasSensor = true;
+  hasSensor = true; // 드래그 비활성 (센서로 제어)
   state.deviceAz   = az;
   state.deviceAlt  = (e.beta  ?? 90) - 90;
   state.deviceRoll = e.gamma  ?? 0;
