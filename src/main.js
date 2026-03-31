@@ -2,14 +2,14 @@
  * main.js — StarView app entry point
  */
 
-const APP_VERSION = 'v2.0';
+const APP_VERSION = 'v2.1';
 
 import { loadSkyData, renderSky, hitTest, getStarsData, getConstsData } from './skymap.js';
 import { updateMoonScreen } from './moon.js';
 import { updatePlanetsScreen } from './planets.js';
 import { updateWeatherScreen } from './observation.js';
 import { showPopup, hidePopup, initTabs, azToCompass, nowTimeStr } from './ui.js';
-import { getPlanetPositions, getMoonPosition, getMoonPhase, raDecToAltAz } from './astronomy.js';
+import { getPlanetPositions, getMoonPosition, getMoonPhase, raDecToAltAz, getSatellitePositions } from './astronomy.js';
 import { renderEventsScreen } from './events.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -35,18 +35,19 @@ let hasAbsoluteSensor = false; // true = deviceorientationabsolute 수신 중 �
 const isMobile = navigator.maxTouchPoints > 0;
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
-const permOverlay  = document.getElementById('perm-overlay');
-const permBtn      = document.getElementById('perm-btn');
-const video        = document.getElementById('camera-video');
-const canvas       = document.getElementById('sky-canvas');
-const hudDir       = document.getElementById('hud-dir');
-const hudTime      = document.getElementById('hud-time');
-const hudObs       = document.getElementById('hud-obs');
-const popupOverlay = document.getElementById('popup-overlay');
-const popupClose   = document.getElementById('popup-close');
-const modeBtn      = document.getElementById('mode-btn');
-const modeIcon     = document.getElementById('mode-icon');
-const tooltip      = document.getElementById('sky-tooltip');
+const permOverlay   = document.getElementById('perm-overlay');
+const permBtn       = document.getElementById('perm-btn');
+const video         = document.getElementById('camera-video');
+const canvas        = document.getElementById('sky-canvas');
+const hudDir        = document.getElementById('hud-dir');
+const hudTime       = document.getElementById('hud-time');
+const hudObs        = document.getElementById('hud-obs');
+const popupOverlay  = document.getElementById('popup-overlay');
+const popupClose    = document.getElementById('popup-close');
+const modeBtn       = document.getElementById('mode-btn');
+const modeIcon      = document.getElementById('mode-icon');
+const tooltip       = document.getElementById('sky-tooltip');
+const centerTooltip = document.getElementById('center-tooltip');
 
 // ── Service Worker ────────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
@@ -148,12 +149,20 @@ async function requestAllPermissions() {
 // iOS (deviceorientation): e.webkitCompassHeading = clockwise azimuth from North
 // Both are already in standard compass bearing — NO inversion needed.
 
+// Low-pass filter for azimuth — handles compass glitches / wrap-around jumps
+const AZ_ALPHA = 0.35; // 0=frozen, 1=raw; 0.35 = smooth but responsive
+
+function smoothAz(rawAz) {
+  const dAz = ((rawAz - state.deviceAz + 540) % 360) - 180;
+  return (state.deviceAz + dAz * AZ_ALPHA + 360) % 360;
+}
+
 // Chrome Android: absolute compass, fires continuously
 window.addEventListener('deviceorientationabsolute', (e) => {
   if (!state.permGranted) return;
   hasAbsoluteSensor = true;
   hasSensor = true;
-  state.deviceAz   = e.alpha  ?? 0;
+  state.deviceAz   = smoothAz(e.alpha ?? 0);
   state.deviceAlt  = (e.beta ?? 90) - 90;   // portrait upright(β=90)→0°, tilt back(β↑)→positive
   state.deviceRoll = e.gamma  ?? 0;
 }, true);
@@ -181,7 +190,7 @@ window.addEventListener('deviceorientation', (e) => {
            :               (e.alpha ?? 0);
 
   hasSensor = true;
-  state.deviceAz   = az;
+  state.deviceAz   = smoothAz(az);
   state.deviceAlt  = e.beta - 90;   // portrait upright(β=90)→0°, tilt back(β↑)→positive
   state.deviceRoll = e.gamma ?? 0;
 }, true);
@@ -364,6 +373,15 @@ function _localUpdate(now = new Date()) {
   const { altitude, azimuth } = raDecToAltAz(ra, dec, now, state.lat, state.lon);
   const { phase, illumination } = getMoonPhase(now);
   state.moon = { ra, dec, altitude, azimuth, phase, illumination };
+
+  // 위성 동적 위치 계산 — starsData의 satellite 항목을 실시간 RA/Dec로 교체
+  const satPositions = getSatellitePositions(now);
+  const satMap = Object.fromEntries(satPositions.map(s => [s.id, s]));
+  state.stars = getStarsData().map(star =>
+    star.type === 'satellite' && satMap[star.id]
+      ? { ...star, ...satMap[star.id] }
+      : star
+  );
 }
 
 // ── Render loop ───────────────────────────────────────────────────────────────
@@ -379,6 +397,19 @@ function renderLoop() {
 
   if (currentTab === 'ar') {
     renderSky(canvas, state);
+
+    // ── Center crosshair star tooltip ─────────────────────────────────────
+    if (centerTooltip) {
+      const centerHit = hitTest(canvas, canvas.width / 2, canvas.height / 2, state);
+      if (centerHit && centerHit.type === 'star') {
+        const s = centerHit.data;
+        centerTooltip.textContent = s.nameKo || s.name;
+        centerTooltip.style.display = 'block';
+      } else {
+        centerTooltip.style.display = 'none';
+      }
+    }
+
     hudDir.textContent  = `${azToCompass(state.deviceAz)} ${Math.round(state.deviceAz)}°`;
     hudTime.textContent = `${nowTimeStr()} ${APP_VERSION}`;
     if (state.lat != null && isFinite(state.lat) && isFinite(state.lon)) {
@@ -640,8 +671,8 @@ function renderSearchResults(query, container, onClose) {
     `;
     el.addEventListener('click', () => {
       if (!validPos) { onClose(); return; }
-      if (hasSensor) {
-        // 모바일: 자이로스코프가 있으면 방향 안내 모드
+      if (isMobile) {
+        // 모바일: 자이로스코프 방향 안내 모드
         state.searchTarget = { az: pos.az, alt: pos.alt, name: item.name, icon: item.icon };
         onClose();
       } else {

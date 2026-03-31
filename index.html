@@ -89,10 +89,30 @@
       border-color: rgba(255,140,40,0.25);
     }
 
+    /* ── Center crosshair star tooltip ── */
+    #center-tooltip {
+      position: absolute;
+      left: 50%;
+      top: calc(50% - 58px);
+      transform: translateX(-50%);
+      background: rgba(4,8,20,0.82);
+      border: 1px solid rgba(140,200,255,0.3);
+      border-radius: 10px;
+      padding: 5px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      color: rgba(210,235,255,0.95);
+      pointer-events: none;
+      white-space: nowrap;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: none;
+    }
+
     /* ── Search target HUD ── */
     #target-hud {
       position: absolute;
-      bottom: calc(env(safe-area-inset-bottom, 0px) + 88px);
+      bottom: calc(var(--tab-h) + var(--safe-bottom) + 58px);
       left: 50%;
       transform: translateX(-50%);
       background: rgba(4,8,20,0.88);
@@ -543,7 +563,7 @@
     <h2>StarView</h2>
     <p>별자리 AR 뷰를 사용하려면<br>카메라, 위치, 자이로스코프 권한이 필요합니다.</p>
     <button id="perm-btn">시작하기</button>
-    <div style="font-size:12px;color:rgba(126,184,247,0.45);margin-top:6px;">StarView v2.0</div>
+    <div style="font-size:12px;color:rgba(126,184,247,0.45);margin-top:6px;">StarView v2.1</div>
   </div>
 
   <!-- AR View (tab 0) -->
@@ -582,6 +602,9 @@
       <div class="hud-chip" id="hud-time">--:--</div>
       <div class="hud-chip" id="hud-obs">--</div>
     </div>
+
+    <!-- Center crosshair star name tooltip -->
+    <div id="center-tooltip"></div>
 
     <!-- Search target direction HUD -->
     <div id="target-hud" style="display:none">

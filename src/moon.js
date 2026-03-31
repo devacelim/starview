@@ -62,16 +62,33 @@ export function drawMoon(canvas, phase) {
 
 /**
  * Draw the dark shadow that covers the unlit side.
- * phaseFactor: 0 = new moon (all shadow), 1 = full moon (no shadow)
- * For waxing (0→0.5): shadow on LEFT
- * For waning (0.5→1): shadow on RIGHT
+ * For waxing (phase 0→0.5): right side lit  → shadow on LEFT
+ * For waning (phase 0.5→1): left side lit   → shadow on RIGHT
+ *
+ * Each half is further split into CRESCENT (illum < 0.5) and GIBBOUS (illum > 0.5):
+ *   Crescent: semicircle + far-side ellipse
+ *   Gibbous:  semicircle + near-side ellipse (thin sliver only)
+ * The terminator ellipse x-radius a = R * |1 - 2*illum|
  */
 function _drawShadow(ctx, cx, cy, R, phase, darkColor) {
   if (phase === 0.5) return; // full moon — no shadow
 
-  // phaseFactor: 0 at new moon, 1 at full moon, 0 at new moon again
-  const pf = phase < 0.5 ? phase * 2 : (1 - phase) * 2;
-  const shadowX = R * (1 - pf); // 0 at full moon, R at new moon
+  const isWaxing = phase < 0.5;
+  const illum = isWaxing ? phase * 2 : (1 - phase) * 2; // 0=new, 1=full
+
+  // Near-new moon: fill entire circle
+  if (illum < 0.01) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fillStyle = darkColor;
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  const isGibbous = illum > 0.5;
+  const a = R * Math.abs(1 - 2 * illum); // terminator ellipse x-radius
 
   ctx.save();
   ctx.beginPath();
@@ -79,18 +96,26 @@ function _drawShadow(ctx, cx, cy, R, phase, darkColor) {
   ctx.clip();
 
   ctx.beginPath();
-  if (phase < 0.5) {
-    // Shadow on LEFT
-    // counterclockwise arc = left semicircle (top → left → bottom)
+  if (isWaxing) {
+    // Left semicircle (top → left → bottom, clockwise in screen/y-down)
     ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, true);
-    // Close with clockwise ellipse (bottom → right side → top)
-    ctx.ellipse(cx, cy, shadowX, R, 0, Math.PI / 2, -Math.PI / 2, false);
+    if (!isGibbous) {
+      // Crescent: close with RIGHT side of terminator ellipse (CCW screen: bottom → right → top)
+      ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, false);
+    } else {
+      // Gibbous: close with LEFT side of terminator ellipse (CW screen: bottom → left → top)
+      ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, true);
+    }
   } else {
-    // Shadow on RIGHT
-    // clockwise arc = right semicircle (top → right → bottom)
+    // Right semicircle (top → right → bottom, CCW in screen/y-down)
     ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, false);
-    // Close with counterclockwise ellipse (bottom → left side → top)
-    ctx.ellipse(cx, cy, shadowX, R, 0, Math.PI / 2, -Math.PI / 2, true);
+    if (!isGibbous) {
+      // Crescent: close with LEFT side of terminator ellipse (CW screen: bottom → left → top)
+      ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, true);
+    } else {
+      // Gibbous: close with RIGHT side of terminator ellipse (CCW screen: bottom → right → top)
+      ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, false);
+    }
   }
   ctx.closePath();
   ctx.fillStyle = darkColor;

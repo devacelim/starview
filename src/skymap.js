@@ -520,16 +520,16 @@ export function renderSky(canvas, state) {
       ctx.fill();
       ctx.restore();
 
-      if (star.mag < 1.5) {
+      if (star.mag < 3.0 && (star.nameKo || star.name)) {
         ctx.save();
-        ctx.font        = '11px -apple-system, sans-serif';
+        ctx.font        = '13px -apple-system, sans-serif';
         ctx.textBaseline = 'middle';
         // Outline for readability
-        ctx.strokeStyle = 'rgba(0,0,20,0.8)';
-        ctx.lineWidth   = 2.5;
+        ctx.strokeStyle = 'rgba(0,0,20,0.95)';
+        ctx.lineWidth   = 3;
         ctx.lineJoin    = 'round';
         ctx.strokeText(star.nameKo || star.name, star.x + radius + 5, star.y);
-        ctx.fillStyle = belowHorizon ? 'rgba(130,180,255,0.5)' : 'rgba(185,215,255,0.9)';
+        ctx.fillStyle = belowHorizon ? 'rgba(150,195,255,0.55)' : 'rgba(220,235,255,1.0)';
         ctx.fillText(star.nameKo || star.name, star.x + radius + 5, star.y);
         ctx.restore();
       }
