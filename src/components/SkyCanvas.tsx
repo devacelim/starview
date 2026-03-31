@@ -61,6 +61,10 @@ export default function SkyCanvas({ skyStateRef, onHit, onHover }: Props) {
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 1) {
         touchLastX = e.touches[0].clientX; touchLastY = e.touches[0].clientY; lastPinchDist = null;
+        // Show hover tooltip on touch (mobile)
+        const rect = canvas.getBoundingClientRect();
+        const hit = hitTest(canvas, e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top, skyStateRef.current);
+        onHover(hit, e.touches[0].clientX, e.touches[0].clientY);
       } else if (e.touches.length === 2) {
         lastPinchDist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,

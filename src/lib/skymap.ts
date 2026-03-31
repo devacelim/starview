@@ -173,13 +173,16 @@ function drawMoonEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number, 
   ctx.lineWidth = 1.2;
   ctx.stroke();
 
-  const mc = Object.assign(document.createElement('canvas'), { width: br * 2, height: br * 2 });
-  drawMiniMoon(mc, moon.phase);
+  if (!_moonCanvas || Math.abs(moon.phase - _moonCanvasPhase) > 0.002) {
+    _moonCanvas = Object.assign(document.createElement('canvas'), { width: 44, height: 44 });
+    drawMiniMoon(_moonCanvas, moon.phase);
+    _moonCanvasPhase = moon.phase;
+  }
   ctx.save();
   ctx.beginPath();
   ctx.arc(bx, by, br - 2, 0, Math.PI * 2);
   ctx.clip();
-  ctx.drawImage(mc, bx - br, by - br, br * 2, br * 2);
+  ctx.drawImage(_moonCanvas, bx - br, by - br, br * 2, br * 2);
   ctx.restore();
 
   const ax = bx + cos * (br + 6);
@@ -270,6 +273,12 @@ function drawSearchTargetEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: 
 
 let starsData: Star[]  = [];
 let constsData: Constellation[] = [];
+
+// Performance caches
+let _altAzCache = new Map<string | number, { altitude: number; azimuth: number }>();
+let _altAzCacheAt = 0;
+let _moonCanvas: HTMLCanvasElement | null = null;
+let _moonCanvasPhase = -99;
 
 export function getStarsData(): Star[]  { return starsData;  }
 export function getConstsData(): Constellation[] { return constsData; }
@@ -455,24 +464,38 @@ export function renderSky(canvas: HTMLCanvasElement, state: SkyState): void {
 
   const catalog = state.stars || starsData;
 
+  // Recompute star alt/az at most every 2 seconds (stars move slowly)
+  const nowMs = Date.now();
+  if (nowMs - _altAzCacheAt > 2000 || _altAzCache.size === 0) {
+    _altAzCacheAt = nowMs;
+    catalog.forEach((star) => {
+      if (star.altitude === undefined || star.azimuth === undefined) {
+        _altAzCache.set(star.id, raDecToAltAz(star.ra, star.dec, date, lat, lon));
+      }
+    });
+  }
+
+  const projMap = new Map<string | number, ProjectedStar>();
   const projected: ProjectedStar[] = catalog.map((star) => {
     let altitude: number, azimuth: number;
     if (star.altitude !== undefined && star.azimuth !== undefined) {
       altitude = star.altitude;
       azimuth  = star.azimuth;
     } else {
-      const pos = raDecToAltAz(star.ra, star.dec, date, lat, lon);
-      altitude  = pos.altitude;
-      azimuth   = pos.azimuth;
+      const cached = _altAzCache.get(star.id);
+      altitude = cached?.altitude ?? 0;
+      azimuth  = cached?.azimuth ?? 0;
     }
-    return { ...star, altitude, azimuth, ...project(altitude, azimuth, deviceAz, deviceAlt, W, H, fov) };
+    const ps = { ...star, altitude, azimuth, ...project(altitude, azimuth, deviceAz, deviceAlt, W, H, fov) };
+    projMap.set(star.id, ps);
+    return ps;
   });
 
   if (tog.constellations) {
     constsData.forEach((c) => {
       (c.lines || []).forEach(([idA, idB]) => {
-        const a = projected.find((s) => s.id === idA);
-        const b = projected.find((s) => s.id === idB);
+        const a = projMap.get(idA);
+        const b = projMap.get(idB);
         if (!a || !b) return;
         if (!a.visible && !b.visible) return;
         const belowHorizon = a.altitude < 0 && b.altitude < 0;
@@ -572,14 +595,17 @@ export function renderSky(canvas: HTMLCanvasElement, state: SkyState): void {
       ctx.fill();
       ctx.restore();
 
-      const mc = Object.assign(document.createElement('canvas'), { width: R * 2, height: R * 2 });
-      drawMiniMoon(mc, moon.phase);
+      if (!_moonCanvas || Math.abs(moon.phase - _moonCanvasPhase) > 0.002) {
+        _moonCanvas = Object.assign(document.createElement('canvas'), { width: 44, height: 44 });
+        drawMiniMoon(_moonCanvas, moon.phase);
+        _moonCanvasPhase = moon.phase;
+      }
       ctx.save();
       ctx.globalAlpha = moonAlpha;
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, R, 0, Math.PI * 2);
       ctx.clip();
-      ctx.drawImage(mc, pos.x - R, pos.y - R, R * 2, R * 2);
+      ctx.drawImage(_moonCanvas, pos.x - R, pos.y - R, R * 2, R * 2);
       ctx.restore();
 
       ctx.save();
