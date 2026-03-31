@@ -1,12 +1,21 @@
 /**
- * skymap.js — AR/Virtual Sky Overlay Renderer
+ * skymap.ts — AR/Virtual Sky Overlay Renderer
  */
 
-import { raDecToAltAz, getMoonPosition, getMoonPhase } from './astronomy.js';
-import { drawMiniMoon } from './moon.js';
+import { raDecToAltAz } from './astronomy';
+import { drawMiniMoon } from './moon';
+import type { SkyState, HitResult, Star, MoonData, Planet, Constellation } from '../types';
 
-/** Per-planet visual config: base radius, body colours, glow, bands, rings */
-const PLANET_VIS = {
+interface PlanetVisCfg {
+  baseR: number;
+  c1: string;
+  c2: string;
+  glow: string;
+  bands: boolean;
+  rings: boolean;
+}
+
+const PLANET_VIS: Record<string, PlanetVisCfg> = {
   Mercury: { baseR: 5,  c1: '#c8c8c8', c2: '#606060', glow: 'rgba(200,200,200,0.3)',  bands: false, rings: false },
   Venus:   { baseR: 8,  c1: '#fffae0', c2: '#d8c030', glow: 'rgba(255,245,80,0.35)',  bands: false, rings: false },
   Mars:    { baseR: 7,  c1: '#e85030', c2: '#901808', glow: 'rgba(232,80,48,0.35)',   bands: false, rings: false },
@@ -16,8 +25,7 @@ const PLANET_VIS = {
   Neptune: { baseR: 8,  c1: '#4878f0', c2: '#1830a0', glow: 'rgba(72,120,240,0.3)',  bands: false, rings: false },
 };
 
-/** Darken a hex colour by ~60 units per channel (for gradient edge). */
-function darken(hex) {
+function darken(hex: string): string {
   const n = parseInt(hex.slice(1), 16);
   const r = Math.max(0, (n >> 16) - 60);
   const g = Math.max(0, ((n >> 8) & 0xff) - 60);
@@ -25,15 +33,10 @@ function darken(hex) {
   return `rgb(${r},${g},${b})`;
 }
 
-/**
- * Draw a canvas-rendered planet disc with rings/bands/specular highlight.
- * Exported so planets.js can reuse it for list cards.
- */
-export function drawPlanetDisc(ctx, cx, cy, r, nameEn) {
+export function drawPlanetDisc(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, nameEn: string): void {
   const cfg = PLANET_VIS[nameEn] || PLANET_VIS.Mercury;
   ctx.save();
 
-  // Saturn — back (top) half of rings, drawn before body so body overlaps
   if (cfg.rings) {
     ctx.beginPath();
     ctx.ellipse(cx, cy + r * 0.1, r * 2.2, r * 0.45, 0, Math.PI, 0, true);
@@ -42,7 +45,6 @@ export function drawPlanetDisc(ctx, cx, cy, r, nameEn) {
     ctx.stroke();
   }
 
-  // Planet body with radial gradient
   const grad = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.05, cx, cy, r);
   grad.addColorStop(0,   cfg.c1);
   grad.addColorStop(0.6, cfg.c2);
@@ -52,7 +54,6 @@ export function drawPlanetDisc(ctx, cx, cy, r, nameEn) {
   ctx.fillStyle = grad;
   ctx.fill();
 
-  // Jupiter — horizontal bands clipped to body
   if (cfg.bands) {
     ctx.save();
     ctx.beginPath();
@@ -65,7 +66,6 @@ export function drawPlanetDisc(ctx, cx, cy, r, nameEn) {
     ctx.restore();
   }
 
-  // Saturn — front (bottom) half of rings, drawn after body so rings overlap at bottom
   if (cfg.rings) {
     ctx.beginPath();
     ctx.ellipse(cx, cy + r * 0.1, r * 2.2, r * 0.45, 0, 0, Math.PI);
@@ -74,7 +74,6 @@ export function drawPlanetDisc(ctx, cx, cy, r, nameEn) {
     ctx.stroke();
   }
 
-  // Specular highlight
   const spec = ctx.createRadialGradient(cx - r * 0.32, cy - r * 0.32, 0, cx - r * 0.32, cy - r * 0.32, r * 0.55);
   spec.addColorStop(0, 'rgba(255,255,255,0.45)');
   spec.addColorStop(1, 'rgba(255,255,255,0)');
@@ -86,15 +85,11 @@ export function drawPlanetDisc(ctx, cx, cy, r, nameEn) {
   ctx.restore();
 }
 
-/**
- * Draw an edge-arrow badge for an off-screen (but above-horizon) planet.
- */
-function drawPlanetEdgeArrow(ctx, W, H, projX, projY, r, planet, cfg) {
+function drawPlanetEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number, projX: number, projY: number, r: number, planet: Planet, cfg: PlanetVisCfg): void {
   const cx = W / 2, cy = H / 2;
   const angle = Math.atan2(projY - cy, projX - cx);
   const cos = Math.cos(angle), sin = Math.sin(angle);
 
-  // Find where ray from centre hits screen edge band (margin = 40px inset)
   const m = 40;
   let t = Infinity;
   if (cos > 1e-9) t = Math.min(t, (W - m - cx) / cos);
@@ -105,11 +100,10 @@ function drawPlanetEdgeArrow(ctx, W, H, projX, projY, r, planet, cfg) {
 
   const bx = cx + cos * t;
   const by = cy + sin * t;
-  const br = 20; // badge radius
+  const br = 20;
 
   ctx.save();
 
-  // Badge background
   ctx.beginPath();
   ctx.arc(bx, by, br, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(0,8,24,0.78)';
@@ -118,7 +112,6 @@ function drawPlanetEdgeArrow(ctx, W, H, projX, projY, r, planet, cfg) {
   ctx.lineWidth   = 1.2;
   ctx.stroke();
 
-  // Mini planet disc clipped inside badge
   ctx.save();
   ctx.beginPath();
   ctx.arc(bx, by, br - 2, 0, Math.PI * 2);
@@ -126,7 +119,6 @@ function drawPlanetEdgeArrow(ctx, W, H, projX, projY, r, planet, cfg) {
   drawPlanetDisc(ctx, bx, by, Math.max(4, Math.min(9, r * 0.72)), planet.nameEn);
   ctx.restore();
 
-  // Arrow triangle pointing toward planet
   const ax = bx + cos * (br + 6);
   const ay = by + sin * (br + 6);
   ctx.save();
@@ -141,7 +133,6 @@ function drawPlanetEdgeArrow(ctx, W, H, projX, projY, r, planet, cfg) {
   ctx.fill();
   ctx.restore();
 
-  // Planet name below badge
   ctx.font        = 'bold 9px -apple-system, sans-serif';
   ctx.textAlign   = 'center';
   ctx.textBaseline = 'top';
@@ -155,10 +146,7 @@ function drawPlanetEdgeArrow(ctx, W, H, projX, projY, r, planet, cfg) {
   ctx.restore();
 }
 
-/**
- * Draw edge-arrow badge for the moon when off-screen or below horizon.
- */
-function drawMoonEdgeArrow(ctx, W, H, projX, projY, moon) {
+function drawMoonEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number, projX: number, projY: number, moon: MoonData): void {
   const cx = W / 2, cy = H / 2;
   const angle = Math.atan2(projY - cy, projX - cx);
   const cos = Math.cos(angle), sin = Math.sin(angle);
@@ -185,7 +173,6 @@ function drawMoonEdgeArrow(ctx, W, H, projX, projY, moon) {
   ctx.lineWidth = 1.2;
   ctx.stroke();
 
-  // Mini moon clipped inside badge
   const mc = Object.assign(document.createElement('canvas'), { width: br * 2, height: br * 2 });
   drawMiniMoon(mc, moon.phase);
   ctx.save();
@@ -195,7 +182,6 @@ function drawMoonEdgeArrow(ctx, W, H, projX, projY, moon) {
   ctx.drawImage(mc, bx - br, by - br, br * 2, br * 2);
   ctx.restore();
 
-  // Arrow
   const ax = bx + cos * (br + 6);
   const ay = by + sin * (br + 6);
   ctx.save();
@@ -223,10 +209,7 @@ function drawMoonEdgeArrow(ctx, W, H, projX, projY, moon) {
   ctx.restore();
 }
 
-/**
- * Draw edge-arrow badge for a generic search target (star/moon/constellation).
- */
-function drawSearchTargetEdgeArrow(ctx, W, H, projX, projY, name, icon) {
+function drawSearchTargetEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number, projX: number, projY: number, name: string, icon: string): void {
   const cx = W / 2, cy = H / 2;
   const angle = Math.atan2(projY - cy, projX - cx);
   const cos = Math.cos(angle), sin = Math.sin(angle);
@@ -245,7 +228,6 @@ function drawSearchTargetEdgeArrow(ctx, W, H, projX, projY, name, icon) {
 
   ctx.save();
 
-  // Badge background
   ctx.beginPath();
   ctx.arc(bx, by, br, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(0,8,24,0.85)';
@@ -254,14 +236,12 @@ function drawSearchTargetEdgeArrow(ctx, W, H, projX, projY, name, icon) {
   ctx.lineWidth   = 1.8;
   ctx.stroke();
 
-  // Icon
   ctx.font         = `${Math.round(br * 0.85)}px -apple-system, sans-serif`;
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle    = 'rgba(255,220,80,0.95)';
   ctx.fillText(icon || '✦', bx, by);
 
-  // Arrow
   const ax = bx + cos * (br + 7);
   const ay = by + sin * (br + 7);
   ctx.save();
@@ -276,7 +256,6 @@ function drawSearchTargetEdgeArrow(ctx, W, H, projX, projY, name, icon) {
   ctx.fill();
   ctx.restore();
 
-  // Name label below badge
   ctx.font         = 'bold 9px -apple-system, sans-serif';
   ctx.textBaseline = 'top';
   ctx.strokeStyle  = 'rgba(0,0,20,0.9)';
@@ -289,13 +268,13 @@ function drawSearchTargetEdgeArrow(ctx, W, H, projX, projY, name, icon) {
   ctx.restore();
 }
 
-let starsData  = [];
-let constsData = [];
+let starsData: Star[]  = [];
+let constsData: Constellation[] = [];
 
-export function getStarsData()  { return starsData;  }
-export function getConstsData() { return constsData; }
+export function getStarsData(): Star[]  { return starsData;  }
+export function getConstsData(): Constellation[] { return constsData; }
 
-export async function loadSkyData() {
+export async function loadSkyData(): Promise<void> {
   const [starsRes, constsRes] = await Promise.all([
     fetch('/assets/stars.json'),
     fetch('/assets/constellations.json'),
@@ -304,14 +283,15 @@ export async function loadSkyData() {
   constsData = await constsRes.json();
 }
 
-/**
- * Gnomonic (tangent-plane) projection: alt/az → canvas (x,y)
- */
-function project(altDeg, azDeg, deviceAz, deviceAlt, W, H, fovH) {
+interface ProjectResult {
+  x: number;
+  y: number;
+  visible: boolean;
+}
+
+function project(altDeg: number, azDeg: number, deviceAz: number, deviceAlt: number, W: number, H: number, fovH: number): ProjectResult {
   const dAz  = ((azDeg  - deviceAz  + 540) % 360) - 180;
   const dAlt = altDeg - deviceAlt;
-  // 세로모드: H 기준 스케일 → 수직시야각=fovH, 30° 기울이면 지평선이 화면 아래로
-  // 가로모드: W 기준 스케일 → 자동 대응
   const scale = Math.max(W, H) / fovH;
   const x = W / 2 + dAz  * scale;
   const y = H / 2 - dAlt * scale;
@@ -320,14 +300,10 @@ function project(altDeg, azDeg, deviceAz, deviceAlt, W, H, fovH) {
   return { x, y, visible };
 }
 
-/**
- * Draw virtual sky background: gradient + horizon line + cardinal labels + crosshair.
- */
-function drawVirtualSky(ctx, W, H, deviceAz, deviceAlt, fov) {
-  const scale  = Math.max(W, H) / fov;   // project() 와 동일 기준
+function drawVirtualSky(ctx: CanvasRenderingContext2D, W: number, H: number, deviceAz: number, deviceAlt: number, fov: number): void {
+  const scale  = Math.max(W, H) / fov;
   const horizY = Math.round(H / 2 + deviceAlt * scale);
 
-  // === Sky above horizon ===
   const skyBottom = Math.max(0, Math.min(H, horizY));
   if (skyBottom > 0) {
     const sky = ctx.createLinearGradient(0, 0, 0, skyBottom);
@@ -339,11 +315,9 @@ function drawVirtualSky(ctx, W, H, deviceAz, deviceAlt, fov) {
     ctx.fillRect(0, 0, W, skyBottom);
   }
 
-  // === Ground / underground sky below horizon ===
   if (horizY < H) {
     const groundTop = Math.max(0, horizY);
     if (deviceAlt < -5) {
-      // Underground view: treat as a mirrored dark sky so stars show through
       const ug = ctx.createLinearGradient(0, groundTop, 0, Math.min(H, groundTop + 300));
       ug.addColorStop(0,   '#04100a');
       ug.addColorStop(1,   '#010405');
@@ -359,9 +333,7 @@ function drawVirtualSky(ctx, W, H, deviceAz, deviceAlt, fov) {
     }
   }
 
-  // === Atmospheric horizon glow ===
   if (horizY > -120 && horizY < H + 120) {
-    // Sky-side glow
     const topGlow = ctx.createLinearGradient(0, Math.max(0, horizY - 90), 0, horizY);
     topGlow.addColorStop(0,   'rgba(10,40,150,0)');
     topGlow.addColorStop(0.5, 'rgba(20,65,190,0.07)');
@@ -369,7 +341,6 @@ function drawVirtualSky(ctx, W, H, deviceAz, deviceAlt, fov) {
     ctx.fillStyle = topGlow;
     ctx.fillRect(0, Math.max(0, horizY - 90), W, Math.min(90, horizY));
 
-    // Ground-side glow
     if (horizY < H) {
       const botGlow = ctx.createLinearGradient(0, horizY, 0, Math.min(H, horizY + 70));
       botGlow.addColorStop(0,   'rgba(50,110,230,0.18)');
@@ -378,7 +349,6 @@ function drawVirtualSky(ctx, W, H, deviceAz, deviceAlt, fov) {
       ctx.fillRect(0, horizY, W, Math.min(70, H - horizY));
     }
 
-    // Horizon line
     ctx.save();
     ctx.shadowColor = 'rgba(80,150,255,0.5)';
     ctx.shadowBlur  = 6;
@@ -392,7 +362,6 @@ function drawVirtualSky(ctx, W, H, deviceAz, deviceAlt, fov) {
     ctx.restore();
   }
 
-  // === Altitude scale (right edge) ===
   const scaleX = W - 24;
   [90, 60, 45, 30, 15, 0, -15, -30, -45, -60].forEach((alt) => {
     const y = H / 2 - (alt - deviceAlt) * scale;
@@ -414,7 +383,6 @@ function drawVirtualSky(ctx, W, H, deviceAz, deviceAlt, fov) {
     ctx.restore();
   });
 
-  // === Cardinal direction labels ===
   const CARDINALS = [
     { lbl: 'N', az: 0 }, { lbl: 'NE', az: 45 }, { lbl: 'E', az: 90 }, { lbl: 'SE', az: 135 },
     { lbl: 'S', az: 180 }, { lbl: 'SW', az: 225 }, { lbl: 'W', az: 270 }, { lbl: 'NW', az: 315 },
@@ -428,7 +396,6 @@ function drawVirtualSky(ctx, W, H, deviceAz, deviceAlt, fov) {
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `bold ${isMain ? 13 : 11}px -apple-system, sans-serif`;
-    // Glow outline
     ctx.strokeStyle = 'rgba(0,0,20,0.8)';
     ctx.lineWidth   = 3;
     ctx.lineJoin    = 'round';
@@ -438,28 +405,24 @@ function drawVirtualSky(ctx, W, H, deviceAz, deviceAlt, fov) {
     ctx.restore();
   });
 
-  // === Center crosshair ===
   const cx = W / 2, cy = H / 2;
   ctx.save();
   ctx.strokeStyle = 'rgba(140,200,255,0.35)';
   ctx.lineWidth   = 1;
-  const r   = 20;
+  const rCross   = 20;
   const arm = 16;
   const gap = 5;
-  // Circle
   ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.arc(cx, cy, rCross, 0, Math.PI * 2);
   ctx.stroke();
-  // Cross arms
   ctx.beginPath();
-  ctx.moveTo(cx - r - arm, cy); ctx.lineTo(cx - r - gap, cy);
-  ctx.moveTo(cx + r + gap,  cy); ctx.lineTo(cx + r + arm, cy);
-  ctx.moveTo(cx, cy - r - arm); ctx.lineTo(cx, cy - r - gap);
-  ctx.moveTo(cx, cy + r + gap);  ctx.lineTo(cx, cy + r + arm);
+  ctx.moveTo(cx - rCross - arm, cy); ctx.lineTo(cx - rCross - gap, cy);
+  ctx.moveTo(cx + rCross + gap,  cy); ctx.lineTo(cx + rCross + arm, cy);
+  ctx.moveTo(cx, cy - rCross - arm); ctx.lineTo(cx, cy - rCross - gap);
+  ctx.moveTo(cx, cy + rCross + gap);  ctx.lineTo(cx, cy + rCross + arm);
   ctx.stroke();
   ctx.restore();
 
-  // === Below-horizon indicator ===
   if (deviceAlt < -8) {
     const labelY = Math.min(horizY + 28, H - 20);
     ctx.save();
@@ -471,18 +434,15 @@ function drawVirtualSky(ctx, W, H, deviceAz, deviceAlt, fov) {
   }
 }
 
-/**
- * Main render — called every animation frame.
- * Uses state.stars (API, pre-computed alt/az) if available, else local catalog.
- */
-export function renderSky(canvas, state) {
+type ProjectedStar = Star & { altitude: number; azimuth: number; x: number; y: number; visible: boolean };
+
+export function renderSky(canvas: HTMLCanvasElement, state: SkyState): void {
   const { lat, lon, deviceAz, deviceAlt, planets, moon, date, toggles, arMode, fov: stateFov } = state;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d')!;
   const W   = canvas.width;
   const H   = canvas.height;
-  const fov = stateFov ?? 60; // horizontal FOV degrees (zoom)
+  const fov = stateFov ?? 60;
 
-  // Background / clear
   if (arMode === 'virtual') {
     drawVirtualSky(ctx, W, H, deviceAz, deviceAlt, fov);
   } else {
@@ -493,18 +453,14 @@ export function renderSky(canvas, state) {
 
   const tog = toggles || { stars: true, constellations: true, moon: true, planets: true };
 
-  // Resolve star catalog: API data (has pre-computed alt/az) or local JSON
   const catalog = state.stars || starsData;
 
-  // Pre-project all stars
-  const projected = catalog.map((star) => {
-    let altitude, azimuth;
+  const projected: ProjectedStar[] = catalog.map((star) => {
+    let altitude: number, azimuth: number;
     if (star.altitude !== undefined && star.azimuth !== undefined) {
-      // From API: positions already computed
       altitude = star.altitude;
       azimuth  = star.azimuth;
     } else {
-      // Local fallback: compute on the fly
       const pos = raDecToAltAz(star.ra, star.dec, date, lat, lon);
       altitude  = pos.altitude;
       azimuth   = pos.azimuth;
@@ -512,7 +468,6 @@ export function renderSky(canvas, state) {
     return { ...star, altitude, azimuth, ...project(altitude, azimuth, deviceAz, deviceAlt, W, H, fov) };
   });
 
-  // ── Constellation lines ──────────────────────────────────────────────────
   if (tog.constellations) {
     constsData.forEach((c) => {
       (c.lines || []).forEach(([idA, idB]) => {
@@ -534,32 +489,29 @@ export function renderSky(canvas, state) {
       });
     });
 
-    // Constellation labels (allow slightly below horizon)
     constsData.forEach((c) => {
       const members = projected.filter(
         (s) => s.constellation?.toUpperCase() === c.id.toUpperCase() && s.visible && s.altitude > -20
       );
       if (members.length < 2) return;
-      const cx = members.reduce((s, m) => s + m.x, 0) / members.length;
-      const cy = members.reduce((s, m) => s + m.y, 0) / members.length;
+      const cxL = members.reduce((s, m) => s + m.x, 0) / members.length;
+      const cyL = members.reduce((s, m) => s + m.y, 0) / members.length;
       const avgAlt = members.reduce((s, m) => s + m.altitude, 0) / members.length;
       const belowHorizon = avgAlt < 0;
       ctx.save();
       ctx.font        = 'bold 11px -apple-system, sans-serif';
       ctx.textAlign   = 'center';
       ctx.textBaseline = 'middle';
-      // Stroke outline for readability
       ctx.strokeStyle = 'rgba(0,0,20,0.85)';
       ctx.lineWidth   = 3;
       ctx.lineJoin    = 'round';
-      ctx.strokeText(c.nameKo || c.name, cx, cy - 6);
+      ctx.strokeText(c.nameKo || c.name, cxL, cyL - 6);
       ctx.fillStyle = belowHorizon ? 'rgba(80,130,220,0.4)' : 'rgba(126,184,247,0.65)';
-      ctx.fillText(c.nameKo || c.name, cx, cy - 6);
+      ctx.fillText(c.nameKo || c.name, cxL, cyL - 6);
       ctx.restore();
     });
   }
 
-  // ── Stars ────────────────────────────────────────────────────────────────
   if (tog.stars) {
     projected.forEach((star) => {
       if (!star.visible) return;
@@ -581,7 +533,6 @@ export function renderSky(canvas, state) {
       ctx.fillStyle = grad;
       ctx.fill();
 
-      // Star core
       ctx.beginPath();
       ctx.arc(star.x, star.y, radius, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(240,248,255,${alpha})`;
@@ -592,7 +543,6 @@ export function renderSky(canvas, state) {
         ctx.save();
         ctx.font        = '13px -apple-system, sans-serif';
         ctx.textBaseline = 'middle';
-        // Outline for readability
         ctx.strokeStyle = 'rgba(0,0,20,0.95)';
         ctx.lineWidth   = 3;
         ctx.lineJoin    = 'round';
@@ -604,7 +554,6 @@ export function renderSky(canvas, state) {
     });
   }
 
-  // ── Moon ─────────────────────────────────────────────────────────────────
   if (tog.moon && moon) {
     const pos = project(moon.altitude, moon.azimuth, deviceAz, deviceAlt, W, H, fov);
     const moonBelow = moon.altitude < 0;
@@ -641,12 +590,10 @@ export function renderSky(canvas, state) {
       ctx.fillText('달', pos.x, pos.y + R + 14);
       ctx.restore();
     } else if (moon.altitude > -3) {
-      // Off-screen but near/above horizon → edge arrow badge
       drawMoonEdgeArrow(ctx, W, H, pos.x, pos.y, moon);
     }
   }
 
-  // ── Planets ──────────────────────────────────────────────────────────────
   if (tog.planets && planets) {
     const scx = W / 2, scy = H / 2;
     const now = Date.now();
@@ -660,7 +607,6 @@ export function renderSky(canvas, state) {
         const dist = Math.hypot(pos.x - scx, pos.y - scy);
         const threshold = W * 0.12;
 
-        // Outer ambient glow
         ctx.save();
         const glowGrad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, r * 3.5);
         glowGrad.addColorStop(0, cfg.glow);
@@ -671,7 +617,6 @@ export function renderSky(canvas, state) {
         ctx.fill();
         ctx.restore();
 
-        // Pulse rings when planet is near screen centre
         if (dist < threshold) {
           const pulse = (Math.sin(now / 300) + 1) / 2;
           for (let ring = 0; ring < 3; ring++) {
@@ -688,10 +633,8 @@ export function renderSky(canvas, state) {
           }
         }
 
-        // Canvas-drawn planet disc
         drawPlanetDisc(ctx, pos.x, pos.y, r, p.nameEn);
 
-        // Name label
         ctx.save();
         ctx.font         = '11px -apple-system, sans-serif';
         ctx.textAlign    = 'center';
@@ -705,13 +648,11 @@ export function renderSky(canvas, state) {
         ctx.restore();
 
       } else if (p.altitude > -3) {
-        // Off-screen but above/near horizon — draw edge arrow badge
         drawPlanetEdgeArrow(ctx, W, H, pos.x, pos.y, r, p, cfg);
       }
     });
   }
 
-  // ── Search Target Highlight ──────────────────────────────────────────────
   if (state.searchTarget) {
     const { az, alt, name, icon } = state.searchTarget;
     const tPos = project(alt, az, deviceAz, deviceAlt, W, H, fov);
@@ -720,7 +661,6 @@ export function renderSky(canvas, state) {
     const onScreen = tPos.x > -60 && tPos.x < W + 60 && tPos.y > -60 && tPos.y < H + 60;
 
     if (onScreen) {
-      // Pulsating gold ring around the target
       ctx.save();
       ctx.strokeStyle = `rgba(255,220,80,${0.65 + pulse * 0.35})`;
       ctx.lineWidth   = 2;
@@ -740,25 +680,22 @@ export function renderSky(canvas, state) {
   }
 }
 
-/**
- * Tap hit-test — returns closest visible object.
- * Handles both API-provided (pre-computed) and locally-computed positions.
- */
-export function hitTest(canvas, tapX, tapY, state) {
+export function hitTest(canvas: HTMLCanvasElement, tapX: number, tapY: number, state: SkyState): HitResult | null {
   const { lat, lon, deviceAz, deviceAlt, planets, moon, date, fov: stateFov } = state;
   const W   = canvas.width;
   const H   = canvas.height;
   const fov = stateFov ?? 60;
 
-  let best = null, bestDist = 44;
+  let best: HitResult | null = null;
+  let bestDist = 44;
 
-  // Stars
   const catalog = state.stars || starsData;
   catalog.forEach((star) => {
-    let altitude, azimuth;
+    let altitude: number, azimuth: number;
     if (star.altitude !== undefined && star.azimuth !== undefined) {
       altitude = star.altitude; azimuth = star.azimuth;
     } else {
+      if (lat == null || lon == null) return;
       const p = raDecToAltAz(star.ra, star.dec, date, lat, lon);
       altitude = p.altitude; azimuth = p.azimuth;
     }
@@ -767,14 +704,12 @@ export function hitTest(canvas, tapX, tapY, state) {
     if (d < bestDist) { bestDist = d; best = { type: 'star', data: star }; }
   });
 
-  // Moon
   if (moon) {
     const pos = project(moon.altitude, moon.azimuth, deviceAz, deviceAlt, W, H, fov);
     const d   = Math.hypot(tapX - pos.x, tapY - pos.y);
     if (d < 36) { bestDist = d; best = { type: 'moon', data: moon }; }
   }
 
-  // Planets
   if (planets) {
     planets.forEach((p) => {
       const pos = project(p.altitude, p.azimuth, deviceAz, deviceAlt, W, H, fov);

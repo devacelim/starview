@@ -1,42 +1,26 @@
 /**
- * events.js — Dynamic astronomical event calculator
- * 하드코딩 없이 현재 날짜 기준으로 이벤트를 동적 계산
+ * events.ts — Dynamic astronomical event calculator
  */
 
-import { dateToJD } from './astronomy.js';
+import { dateToJD } from './astronomy';
+import type { AstroEvent, EventFilterType } from '../types';
 
 const SYNODIC_MONTH  = 29.53058867;
 const KNOWN_NEW_MOON = 2451550.1; // 2000-01-06 UTC
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function jdToDate(jd) {
+function jdToDate(jd: number): Date {
   return new Date((jd - 2440587.5) * 86400000);
 }
 
-function dateStr(d) {
-  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
-}
-
-function daysUntil(d) {
-  return Math.ceil((d - new Date()) / 86400000);
-}
-
-// ── Moon Phase Events ─────────────────────────────────────────────────────────
-
-/**
- * 향후 daysAhead일 동안 삭·상현·望·하현 날짜 계산
- */
-function getMoonPhaseEvents(daysAhead = 90) {
+function getMoonPhaseEvents(daysAhead = 90): AstroEvent[] {
   const now    = new Date();
   const nowJD  = dateToJD(now);
   const endJD  = nowJD + daysAhead;
 
-  // 기준 새 달에서 몇 사이클 전부터 탐색
   const cycleOffset = Math.floor((nowJD - KNOWN_NEW_MOON) / SYNODIC_MONTH) - 1;
-  const events = [];
+  const events: AstroEvent[] = [];
 
-  const phases = [
+  const phases: Array<{ frac: number; name: string; icon: string; desc: string }> = [
     { frac: 0,    name: '삭 (New Moon)',     icon: '🌑', desc: '달이 보이지 않는 삭. 어두운 밤하늘에서 관측 최적.' },
     { frac: 0.25, name: '상현달',             icon: '🌓', desc: '달이 반쪽 밝아지는 상현. 저녁 서쪽에서 관측.' },
     { frac: 0.5,  name: '보름달 (Full Moon)', icon: '🌕', desc: '달 전체가 밝게 빛나는 망. 달 관측 최적.' },
@@ -58,9 +42,6 @@ function getMoonPhaseEvents(daysAhead = 90) {
   return events;
 }
 
-// ── Meteor Showers ────────────────────────────────────────────────────────────
-// 매년 같은 시기에 반복 — peak은 월/일로 저장, 연도 동적 결정
-
 const METEOR_SHOWERS = [
   { name: '사분의자리 유성우',  nameEn: 'Quadrantids',   month: 1,  day: 3,  zhr: 120, parent: '소행성 2003 EH1',        icon: '☄️', duration: 1 },
   { name: '거문고자리 유성우',  nameEn: 'Lyrids',         month: 4,  day: 22, zhr: 18,  parent: '혜성 C/1861 G1 Thatcher', icon: '☄️', duration: 2 },
@@ -75,12 +56,11 @@ const METEOR_SHOWERS = [
   { name: '작은곰자리 유성우', nameEn: 'Ursids',          month: 12, day: 22, zhr: 10,  parent: '혜성 8P/터틀',            icon: '☄️', duration: 2 },
 ];
 
-function getMeteorShowerEvents(daysAhead = 180) {
+function getMeteorShowerEvents(daysAhead = 180): AstroEvent[] {
   const now    = new Date();
   const endDate = new Date(now.getTime() + daysAhead * 86400000);
-  const events  = [];
+  const events: AstroEvent[] = [];
 
-  // 올해와 내년 모두 확인
   [0, 1].forEach((yearOffset) => {
     const year = now.getFullYear() + yearOffset;
     METEOR_SHOWERS.forEach((shower) => {
@@ -100,19 +80,16 @@ function getMeteorShowerEvents(daysAhead = 180) {
   return events;
 }
 
-// ── Equinoxes & Solstices ─────────────────────────────────────────────────────
-// 근사 계산 (Jean Meeus, 수 분 정확도)
-
-function getSeasonEvents(daysAhead = 180) {
+function getSeasonEvents(daysAhead = 180): AstroEvent[] {
   const now  = new Date();
   const end  = new Date(now.getTime() + daysAhead * 86400000);
-  const events = [];
+  const events: AstroEvent[] = [];
 
   [0, 1].forEach((yearOffset) => {
     const Y    = now.getFullYear() + yearOffset;
     const JDE0 = equinoxSolsticeJDE(Y);
 
-    const seasons = [
+    const seasons: Array<{ jd: number; name: string; icon: string; desc: string }> = [
       { jd: JDE0.marchEquinox,   name: '춘분 (봄 시작)',  icon: '🌱', desc: '낮과 밤의 길이가 같아지는 춘분. 봄 별자리 시즌 시작.' },
       { jd: JDE0.juneSolstice,   name: '하지 (여름 시작)', icon: '☀️', desc: '1년 중 낮이 가장 긴 날. 여름 별자리 관측 시작.' },
       { jd: JDE0.septEquinox,    name: '추분 (가을 시작)', icon: '🍂', desc: '낮과 밤의 길이가 같아지는 추분. 가을 별자리 시즌.' },
@@ -129,8 +106,7 @@ function getSeasonEvents(daysAhead = 180) {
   return events;
 }
 
-function equinoxSolsticeJDE(Y) {
-  // Meeus Table 27.a (valid ~1000-3000 AD)
+function equinoxSolsticeJDE(Y: number): { marchEquinox: number; juneSolstice: number; septEquinox: number; decSolstice: number } {
   const k = Y / 1000;
   return {
     marchEquinox: 1721139.2855 + 365242.1376 * k + 0.067919 * k*k - 0.0002 * k*k*k,
@@ -140,18 +116,11 @@ function equinoxSolsticeJDE(Y) {
   };
 }
 
-// ── Planet Opposition / Conjunction (simplified) ──────────────────────────────
-// 행성과 태양의 황경 차이를 샘플링해서 충/합 감지
-
-function getPlanetEvents(daysAhead = 180) {
+function getPlanetEvents(daysAhead = 180): AstroEvent[] {
   const now   = new Date();
-  const events = [];
+  const events: AstroEvent[] = [];
 
-  // 충(opposition): 행성이 태양 반대편 — 관측 최적
-  // 합(conjunction): 행성이 태양 근처 — 관측 불가
-  // 간소화: 공전주기 기반 다음 충 날짜 추정
-
-  const PLANET_PERIODS = [ // 회합 주기 (일)
+  const PLANET_PERIODS = [
     { name: '화성',  icon: '♂', synodic: 779.9,  lastOpp: new Date('2025-01-16') },
     { name: '목성',  icon: '♃', synodic: 398.9,  lastOpp: new Date('2024-12-07') },
     { name: '토성',  icon: '♄', synodic: 378.1,  lastOpp: new Date('2025-09-21') },
@@ -161,9 +130,7 @@ function getPlanetEvents(daysAhead = 180) {
 
   PLANET_PERIODS.forEach(({ name, icon, synodic, lastOpp }) => {
     let opp = new Date(lastOpp);
-    // 다음 충까지 전진
     while (opp <= now) opp = new Date(opp.getTime() + synodic * 86400000);
-    // 향후 daysAhead 이내이면 추가
     if (opp <= new Date(now.getTime() + daysAhead * 86400000)) {
       events.push({
         type: 'planet',
@@ -178,10 +145,7 @@ function getPlanetEvents(daysAhead = 180) {
   return events;
 }
 
-// ── Eclipses (데이터셋 기반, 향후 10년치) ────────────────────────────────────
-// NASA 일·월식 데이터 (고정이지만 10년치를 포함하므로 충분히 동적)
-
-const ECLIPSE_DATA = [
+const ECLIPSE_DATA: Array<{ type: string; date: string; name: string; icon: string; region: string; desc: string }> = [
   { type: 'lunar',  date: '2025-03-14', name: '개기 월식',  icon: '🌑', region: '북미·남미·서유럽',     desc: '달이 지구 그림자에 완전히 들어가는 개기 월식.' },
   { type: 'solar',  date: '2026-02-17', name: '금환 일식',  icon: '💍', region: '남극 근처',             desc: '달이 태양을 완전히 가리지 못해 금반지 모양이 나타나는 금환 일식.' },
   { type: 'lunar',  date: '2025-09-07', name: '개기 월식',  icon: '🌑', region: '아시아·아프리카·유럽',  desc: '아시아에서 관측 가능한 개기 월식.' },
@@ -194,14 +158,14 @@ const ECLIPSE_DATA = [
   { type: 'solar',  date: '2028-07-22', name: '개기 일식',  icon: '🌞', region: '호주·뉴질랜드',           desc: '호주 대도시에서 관측 가능한 개기 일식.' },
 ];
 
-function getEclipseEvents(daysAhead = 1095) { // 3년
+function getEclipseEvents(daysAhead = 1095): AstroEvent[] {
   const now = new Date();
   const end = new Date(now.getTime() + daysAhead * 86400000);
   return ECLIPSE_DATA
     .map((e) => ({ ...e, date: new Date(e.date) }))
     .filter((e) => e.date >= now && e.date <= end)
     .map((e) => ({
-      type: 'eclipse',
+      type: 'eclipse' as EventFilterType,
       title: e.name,
       icon: e.icon,
       desc: `관측 가능 지역: ${e.region}. ${e.desc}`,
@@ -209,12 +173,7 @@ function getEclipseEvents(daysAhead = 1095) { // 3년
     }));
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
-/**
- * 모든 천체 이벤트를 동적 계산해서 날짜순 반환
- */
-export function getAllEvents(daysAhead = 180) {
+export function getAllEvents(daysAhead = 180): AstroEvent[] {
   const all = [
     ...getMoonPhaseEvents(daysAhead),
     ...getMeteorShowerEvents(daysAhead),
@@ -222,46 +181,5 @@ export function getAllEvents(daysAhead = 180) {
     ...getPlanetEvents(daysAhead),
     ...getEclipseEvents(daysAhead),
   ];
-  return all.sort((a, b) => a.date - b.date);
-}
-
-/**
- * 이벤트 카드 HTML 렌더링
- */
-export function renderEventsScreen(daysAhead = 180) {
-  const list   = document.getElementById('event-list');
-  const filter = document.getElementById('event-filter-select')?.value ?? 'all';
-  list.innerHTML = '';
-
-  const now    = new Date();
-  let events   = getAllEvents(daysAhead);
-
-  if (filter !== 'all') events = events.filter((e) => e.type === filter);
-
-  if (events.length === 0) {
-    list.innerHTML = `<p style="color:#7986cb;padding:20px;text-align:center">해당 기간에 이벤트가 없습니다.</p>`;
-    return;
-  }
-
-  events.forEach((ev) => {
-    const days = daysUntil(ev.date);
-    const card = document.createElement('div');
-    card.className = 'event-card';
-
-    const countdownClass = days <= 3 ? 'style="background:rgba(247,126,126,0.15);color:#f77e7e"' : '';
-    const countdown = days <= 0 ? '오늘!' : days === 1 ? '내일!' : `D-${days}`;
-
-    card.innerHTML = `
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-        <span style="font-size:22px">${ev.icon}</span>
-        <div>
-          <div class="event-title">${ev.title}</div>
-          <div class="event-date">${dateStr(ev.date)}</div>
-        </div>
-        <span class="event-countdown" ${countdownClass} style="margin-left:auto">${countdown}</span>
-      </div>
-      <p style="font-size:13px;color:#7986cb;line-height:1.6;margin:0">${ev.desc}</p>
-    `;
-    list.appendChild(card);
-  });
+  return all.sort((a, b) => a.date.getTime() - b.date.getTime());
 }
