@@ -93,11 +93,14 @@ modeBtn.addEventListener('click', () => {
 // 권한 팝업이 아예 뜨지 않음.
 permBtn.addEventListener('click', async () => {
   // ① iOS 자이로스코프 권한 — 제일 먼저, 다른 await 없이 호출
+  // iOS Safari: listeners MUST be registered after requestPermission resolves
   if (typeof DeviceOrientationEvent !== 'undefined' &&
       typeof DeviceOrientationEvent.requestPermission === 'function') {
     try {
       const r = await DeviceOrientationEvent.requestPermission();
-      if (r !== 'granted') {
+      if (r === 'granted') {
+        startSensorListeners(); // register NOW — iOS Safari ignores pre-registered listeners
+      } else {
         alert('자이로스코프 권한이 거부되었습니다. AR 방향 기능이 제한됩니다.');
       }
     } catch (e) {
@@ -146,14 +149,16 @@ async function requestAllPermissions() {
 
 // ── Device Orientation ────────────────────────────────────────────────────────
 // Chrome Android (deviceorientationabsolute): e.alpha = clockwise azimuth from North
-// iOS (deviceorientation): e.webkitCompassHeading = clockwise azimuth from North
-// Both are already in standard compass bearing — NO inversion needed.
+// iOS Safari (deviceorientation): e.webkitCompassHeading = clockwise azimuth from North
+//
+// IMPORTANT: iOS Safari requires event listeners to be registered AFTER
+// DeviceOrientationEvent.requestPermission() resolves — pre-registered listeners
+// do NOT receive events. So we register lazily via startSensorListeners().
 
 // Low-pass filters for orientation — handles sensor glitches and wrap-around jumps
 const AZ_ALPHA  = 0.12; // 0=frozen, 1=raw
 const ALT_ALPHA = 0.15;
-// Glitch threshold: >40° change in one sensor event is physically impossible (human max ~300°/s)
-// Ignore such readings as sensor glitches (common on Chrome Android deviceorientationabsolute)
+// Glitch threshold: >40° in one sensor event = physically impossible (max ~300°/s human)
 const AZ_GLITCH  = 40; // degrees
 const ALT_GLITCH = 35; // degrees
 
@@ -169,43 +174,48 @@ function smoothAlt(rawAlt) {
   return state.deviceAlt + dAlt * ALT_ALPHA;
 }
 
-// Chrome Android: absolute compass, fires continuously
-window.addEventListener('deviceorientationabsolute', (e) => {
-  if (!state.permGranted) return;
-  hasAbsoluteSensor = true;
-  hasSensor = true;
-  state.deviceAz   = smoothAz(e.alpha ?? 0);
-  state.deviceAlt  = smoothAlt((e.beta ?? 90) - 90);
-  state.deviceRoll = e.gamma  ?? 0;
-}, true);
+let _sensorListenersStarted = false;
+function startSensorListeners() {
+  if (_sensorListenersStarted) return;
+  _sensorListenersStarted = true;
 
-// iOS Safari / Edge iOS: 방향 이벤트 처리
-// Safari → webkitCompassHeading 제공 (절대 방위)
-// Edge iOS → webkitCompassHeading 없을 수 있음, e.absolute=true 또는 상대 alpha 사용
-window.addEventListener('deviceorientation', (e) => {
-  if (!state.permGranted) return;
-  if (hasAbsoluteSensor) return; // deviceorientationabsolute 가 더 정확
+  // Chrome Android: absolute compass
+  window.addEventListener('deviceorientationabsolute', (e) => {
+    hasAbsoluteSensor = true;
+    hasSensor = true;
+    state.deviceAz   = smoothAz(e.alpha ?? 0);
+    state.deviceAlt  = smoothAlt((e.beta ?? 90) - 90);
+    state.deviceRoll = e.gamma ?? 0;
+  }, true);
 
-  // 방위 소스 결정 (우선순위: webkitCompassHeading > absolute alpha > relative alpha)
-  const wk         = e.webkitCompassHeading;
-  const hasCompass  = typeof wk === 'number' && isFinite(wk);
-  const hasAbsAlpha = e.absolute === true && typeof e.alpha === 'number' && isFinite(e.alpha);
+  // iOS Safari / others
+  window.addEventListener('deviceorientation', (e) => {
+    if (hasAbsoluteSensor) return; // absolute sensor is more accurate
 
-  // 완전히 센서 데이터가 없는 경우 (데스크탑 브라우저의 빈 이벤트)
-  if (e.alpha == null && e.beta == null && e.gamma == null) return;
-  // 데스크탑 all-zero 이벤트 (컴패스도 없고 absolute도 아닐 때만 필터)
-  if (!hasCompass && !hasAbsAlpha && e.alpha === 0 && e.beta === 0 && e.gamma === 0) return;
-  if (e.beta == null) return; // 고도 계산 불가
+    const wk        = e.webkitCompassHeading;
+    const hasCompass = typeof wk === 'number' && isFinite(wk);
+    const hasAbsAlpha = e.absolute === true && typeof e.alpha === 'number' && isFinite(e.alpha);
 
-  const az = hasCompass  ? wk
-           : hasAbsAlpha ? e.alpha
-           :               (e.alpha ?? 0);
+    if (e.alpha == null && e.beta == null && e.gamma == null) return;
+    if (!hasCompass && !hasAbsAlpha && e.alpha === 0 && e.beta === 0 && e.gamma === 0) return;
+    if (e.beta == null) return;
 
-  hasSensor = true;
-  state.deviceAz   = smoothAz(az);
-  state.deviceAlt  = smoothAlt(e.beta - 90);
-  state.deviceRoll = e.gamma ?? 0;
-}, true);
+    const az = hasCompass  ? wk
+             : hasAbsAlpha ? e.alpha
+             :               (e.alpha ?? 0);
+
+    hasSensor = true;
+    state.deviceAz   = smoothAz(az);
+    state.deviceAlt  = smoothAlt(e.beta - 90);
+    state.deviceRoll = e.gamma ?? 0;
+  }, true);
+}
+
+// Android / desktop: no permission needed — start listeners immediately
+if (typeof DeviceOrientationEvent === 'undefined' ||
+    typeof DeviceOrientationEvent.requestPermission !== 'function') {
+  startSensorListeners();
+}
 
 // ── Desktop mouse drag (when no physical sensor) ──────────────────────────────
 let isDragging = false, dragLastX = 0, dragLastY = 0;
