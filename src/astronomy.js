@@ -135,56 +135,105 @@ export function moonPhaseName(phase) {
   return '그믐달';
 }
 
+// ── Orbital elements at J2000.0 (Meeus "Astronomical Algorithms" Table 33a) ──
+// L0/Ln: mean longitude & rate (°/Julian century), wbar: longitude of perihelion (°)
+// a: semi-major axis (AU), e: eccentricity, i: inclination (°), Om: ascending node (°)
+const ORB = {
+  Earth:   { L0: 100.46457, Ln: 35999.37244,  e: 0.016710, wbar: 102.93768, a:  1.00000, i:  0.00000, Om:   0.00000 },
+  Mercury: { L0: 252.25032, Ln: 149472.67411, e: 0.205630, wbar:  77.45645, a:  0.38710, i:  7.00497, Om:  48.33076 },
+  Venus:   { L0: 181.97973, Ln:  58517.81538, e: 0.006773, wbar: 131.56370, a:  0.72333, i:  3.39467, Om:  76.67984 },
+  Mars:    { L0: 355.45332, Ln:  19140.30268, e: 0.093412, wbar: 336.04084, a:  1.52366, i:  1.84969, Om:  49.55953 },
+  Jupiter: { L0:  34.39644, Ln:   3034.74612, e: 0.048541, wbar:  14.72847, a:  5.20336, i:  1.30330, Om: 100.46444 },
+  Saturn:  { L0:  49.94432, Ln:   1222.49309, e: 0.055508, wbar:  92.59132, a:  9.53707, i:  2.48446, Om: 113.71504 },
+  Uranus:  { L0: 313.23218, Ln:    428.48202, e: 0.046295, wbar: 170.95427, a: 19.19126, i:  0.77320, Om:  74.22988 },
+  Neptune: { L0: 304.87997, Ln:    218.46515, e: 0.008992, wbar:  44.96476, a: 30.06896, i:  1.76917, Om: 131.72169 },
+};
+
+/** Normalize to [0, 360) */
+function norm360(d) { return ((d % 360) + 360) % 360; }
+
+/** Equation of center (degrees): given eccentricity e and mean anomaly M in degrees */
+function eqCenter(e, Mdeg) {
+  const Mr = Mdeg * Math.PI / 180;
+  return (180 / Math.PI) * (
+    (2*e - 0.25*e*e*e) * Math.sin(Mr)
+    + (1.25*e*e)        * Math.sin(2*Mr)
+    + (13/12*e*e*e)     * Math.sin(3*Mr)
+  );
+}
+
+/** Heliocentric ecliptic lon (°), lat (°), r (AU) from Keplerian elements */
+function helioEcl(T, name) {
+  const o   = ORB[name];
+  const L   = norm360(o.L0 + o.Ln * T);   // mean longitude
+  const M   = norm360(L - o.wbar);          // mean anomaly
+  const C   = eqCenter(o.e, M);
+  const v   = norm360(M + C);               // true anomaly
+  const lon = norm360(v + o.wbar);          // true ecliptic longitude
+  const r   = o.a * (1 - o.e*o.e) / (1 + o.e * Math.cos(v * Math.PI / 180));
+  const lat = (180/Math.PI) * Math.asin(
+    Math.sin(o.i * Math.PI / 180) * Math.sin((lon - o.Om) * Math.PI / 180)
+  );
+  return { lon, lat, r };
+}
+
+/** Convert heliocentric ecliptic positions of Earth & planet to geocentric ecliptic (lon°, lat°) */
+function helioToGeoEcl(earth, planet) {
+  const eR   = earth.lon  * Math.PI / 180;
+  const pR   = planet.lon * Math.PI / 180;
+  const pBR  = planet.lat * Math.PI / 180;
+  const xE = earth.r * Math.cos(eR),  yE = earth.r * Math.sin(eR);
+  const xP = planet.r * Math.cos(pBR) * Math.cos(pR);
+  const yP = planet.r * Math.cos(pBR) * Math.sin(pR);
+  const zP = planet.r * Math.sin(pBR);
+  const dx = xP - xE, dy = yP - yE, dz = zP;
+  const geoLon = norm360(Math.atan2(dy, dx) * 180 / Math.PI);
+  const geoLat = (180/Math.PI) * Math.atan2(dz, Math.sqrt(dx*dx + dy*dy));
+  return { lon: geoLon, lat: geoLat };
+}
+
+/** Geocentric ecliptic (lon°, lat°) → equatorial (RA°, Dec°) */
+function ecl2eq(lon, lat, T) {
+  const eps  = (23.439291 - 0.013004 * T) * Math.PI / 180;
+  const lonR = lon * Math.PI / 180;
+  const latR = lat * Math.PI / 180;
+  const sinD = Math.sin(latR)*Math.cos(eps) + Math.cos(latR)*Math.sin(eps)*Math.sin(lonR);
+  const dec  = (180/Math.PI) * Math.asin(Math.max(-1, Math.min(1, sinD)));
+  const y    = Math.sin(lonR)*Math.cos(eps) - Math.tan(latR)*Math.sin(eps);
+  const ra   = norm360((180/Math.PI) * Math.atan2(y, Math.cos(lonR)));
+  return { ra, dec };
+}
+
+/** Geocentric equatorial RA/Dec for a solar-system body */
+function planetRaDec(T, name) {
+  const earth  = helioEcl(T, 'Earth');
+  const planet = helioEcl(T, name);
+  const geo    = helioToGeoEcl(earth, planet);
+  return ecl2eq(geo.lon, geo.lat, T);
+}
+
 /**
- * Planet positions — simplified mean longitude model
+ * Planet positions — proper ecliptic-to-equatorial conversion via heliocentric elements
+ * (Meeus-based, accurate to ~1–2° for 2000–2050)
  */
 export function getPlanetPositions(date, lat, lon) {
   const jd = dateToJD(date);
   const T  = (jd - 2451545.0) / 36525;
 
   const raw = [
-    { name: '수성', nameEn: 'Mercury', icon: '☿', ...mercuryPos(T) },
-    { name: '금성', nameEn: 'Venus',   icon: '♀', ...venusPos(T) },
-    { name: '화성', nameEn: 'Mars',    icon: '♂', ...marsPos(T) },
-    { name: '목성', nameEn: 'Jupiter', icon: '♃', ...jupiterPos(T) },
-    { name: '토성', nameEn: 'Saturn',  icon: '♄', ...saturnPos(T) },
-    { name: '천왕성', nameEn: 'Uranus', icon: '⛢', ...uranusPos(T) },
-    { name: '해왕성', nameEn: 'Neptune', icon: '♆', ...neptunePos(T) },
+    { name: '수성', nameEn: 'Mercury', icon: '☿', ...planetRaDec(T, 'Mercury'), mag: -0.5 },
+    { name: '금성', nameEn: 'Venus',   icon: '♀', ...planetRaDec(T, 'Venus'),   mag: -4.0 },
+    { name: '화성', nameEn: 'Mars',    icon: '♂', ...planetRaDec(T, 'Mars'),    mag:  0.6 },
+    { name: '목성', nameEn: 'Jupiter', icon: '♃', ...planetRaDec(T, 'Jupiter'), mag: -2.1 },
+    { name: '토성', nameEn: 'Saturn',  icon: '♄', ...planetRaDec(T, 'Saturn'),  mag:  0.7 },
+    { name: '천왕성', nameEn: 'Uranus', icon: '⛢', ...planetRaDec(T, 'Uranus'), mag:  5.7 },
+    { name: '해왕성', nameEn: 'Neptune', icon: '♆', ...planetRaDec(T, 'Neptune'), mag: 8.0 },
   ];
 
   return raw.map((p) => {
     const { altitude, azimuth } = raDecToAltAz(p.ra, p.dec, date, lat, lon);
     return { ...p, altitude, azimuth, visible: altitude > 5 };
   });
-}
-
-function mercuryPos(T) {
-  const L = ((252.2509 + 149472.6746 * T) % 360 + 360) % 360;
-  return { ra: (L + 10) % 360, dec: 5 * Math.sin(toRad(L)), mag: -0.5 };
-}
-function venusPos(T) {
-  const L = ((181.9798 + 58517.8156 * T) % 360 + 360) % 360;
-  return { ra: (L + 8) % 360, dec: 3.4 * Math.sin(toRad(L + 30)), mag: -4.0 };
-}
-function marsPos(T) {
-  const L = ((355.433 + 19140.2993 * T) % 360 + 360) % 360;
-  return { ra: L, dec: 1.85 * Math.sin(toRad(L + 20)), mag: 0.6 };
-}
-function jupiterPos(T) {
-  const L = ((34.351 + 3034.9057 * T) % 360 + 360) % 360;
-  return { ra: L, dec: 1.3 * Math.sin(toRad(L + 10)), mag: -2.1 };
-}
-function saturnPos(T) {
-  const L = ((50.077 + 1222.1138 * T) % 360 + 360) % 360;
-  return { ra: L, dec: 2.49 * Math.sin(toRad(L + 5)), mag: 0.7 };
-}
-function uranusPos(T) {
-  const L = ((314.055 + 428.4748 * T) % 360 + 360) % 360;
-  return { ra: L, dec: 0.77 * Math.sin(toRad(L)), mag: 5.7 };
-}
-function neptunePos(T) {
-  const L = ((304.349 + 218.4600 * T) % 360 + 360) % 360;
-  return { ra: L, dec: 1.77 * Math.sin(toRad(L)), mag: 8.0 };
 }
 
 /**

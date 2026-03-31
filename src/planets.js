@@ -5,10 +5,17 @@
 import { getPlanetPositions, getPlanetRiseSet } from './astronomy.js';
 import { drawPlanetDisc } from './skymap.js';
 
-let currentDate = new Date();
-currentDate.setHours(12, 0, 0, 0);
+let currentDate = new Date(); // defaults to current local time
+let _timeMode = 'now'; // 'now' | 'night'
 
 let _lat = null, _lon = null;
+
+/** Return a Date set to tonight's best viewing time (21:00 local) for the same calendar day */
+function nightDate(base) {
+  const d = new Date(base);
+  d.setHours(21, 0, 0, 0);
+  return d;
+}
 
 /** Format Date → "HH:MM" */
 function fmtTime(d) {
@@ -116,11 +123,35 @@ export function updatePlanetsScreen(lat, lon) {
   _lon = lon ?? _lon;
   if (_lat == null || _lon == null) return [];
 
-  const planets = getPlanetPositions(currentDate, _lat, _lon);
+  // Resolve display date: 'now' = actual current time, 'night' = 21:00 same day
+  const viewDate = _timeMode === 'night' ? nightDate(currentDate) : currentDate;
+
+  const planets = getPlanetPositions(viewDate, _lat, _lon);
   planets.sort((a, b) => {
     if (a.visible !== b.visible) return a.visible ? -1 : 1;
     return b.altitude - a.altitude;
   });
+
+  // ── Time mode toggle ──────────────────────────────────────────────────
+  const modeNow   = document.getElementById('planet-mode-now');
+  const modeNight = document.getElementById('planet-mode-night');
+  if (modeNow && !modeNow._bound) {
+    modeNow._bound = true;
+    modeNow.addEventListener('click', () => {
+      _timeMode = 'now';
+      currentDate = new Date(); // reset to real current time
+      updatePlanetsScreen(null, null);
+    });
+  }
+  if (modeNight && !modeNight._bound) {
+    modeNight._bound = true;
+    modeNight.addEventListener('click', () => {
+      _timeMode = 'night';
+      updatePlanetsScreen(null, null);
+    });
+  }
+  if (modeNow)   modeNow.classList.toggle('active',   _timeMode === 'now');
+  if (modeNight) modeNight.classList.toggle('active', _timeMode === 'night');
 
   // ── Date nav ──────────────────────────────────────────────────────────
   const dateLabel = document.getElementById('planet-date-label');
@@ -145,17 +176,21 @@ export function updatePlanetsScreen(lat, lon) {
 
   // ── Time display ──────────────────────────────────────────────────────
   const timeLabel = document.getElementById('planet-time-label');
-  if (timeLabel) timeLabel.textContent = fmtTime(currentDate);
+  if (timeLabel) timeLabel.textContent = fmtTime(viewDate);
 
   const slider = document.getElementById('planet-time-slider');
   if (slider) {
-    const mins = currentDate.getHours() * 60 + currentDate.getMinutes();
+    const mins = viewDate.getHours() * 60 + viewDate.getMinutes();
     slider.value = mins;
+    // slider disabled in 'now' mode (real-time), enabled in 'night' mode
+    slider.disabled = (_timeMode === 'now');
     if (!slider._bound) {
       slider._bound = true;
       slider.addEventListener('input', () => {
+        if (_timeMode === 'now') return;
         const m = parseInt(slider.value);
         currentDate.setHours(Math.floor(m / 60), m % 60, 0, 0);
+        _timeMode = 'night'; // manual override → stay in night mode
         updatePlanetsScreen(null, null);
       });
     }
