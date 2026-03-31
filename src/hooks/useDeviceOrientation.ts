@@ -43,14 +43,24 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
   const hasFirstReadingRef = useRef(false);  // bypass filter on first event
 
   function smoothAz(rawAz: number): number {
-    if (!hasFirstReadingRef.current) return rawAz;  // first reading: set directly
+    if (!hasFirstReadingRef.current) return rawAz;
     const dAz = ((rawAz - skyStateRef.current.deviceAz + 540) % 360) - 180;
-    if (Math.abs(dAz) > AZ_GLITCH) return skyStateRef.current.deviceAz;
-    return (skyStateRef.current.deviceAz + dAz * AZ_ALPHA + 360) % 360;
+
+    // Near zenith/nadir, Euler decomposition amplifies sensor noise →
+    // widen glitch gate proportionally to elevation angle
+    const absAlt = Math.abs(skyStateRef.current.deviceAlt);
+    const glitch = AZ_GLITCH * (1 + Math.max(0, absAlt - 20) / 15);
+    //  20° → 40,  35° → 80,  50° → 120,  65° → 160
+
+    if (Math.abs(dAz) > glitch) return skyStateRef.current.deviceAz;
+
+    // Stronger smoothing at high elevation (sensor is noisier)
+    const alpha = absAlt > 50 ? AZ_ALPHA * 0.5 : AZ_ALPHA;
+    return (skyStateRef.current.deviceAz + dAz * alpha + 360) % 360;
   }
 
   function smoothAlt(rawAlt: number): number {
-    if (!hasFirstReadingRef.current) return rawAlt;  // first reading: set directly
+    if (!hasFirstReadingRef.current) return rawAlt;
     const dAlt = rawAlt - skyStateRef.current.deviceAlt;
     if (Math.abs(dAlt) > ALT_GLITCH) return skyStateRef.current.deviceAlt;
     return skyStateRef.current.deviceAlt + dAlt * ALT_ALPHA;
