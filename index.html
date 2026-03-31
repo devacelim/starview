@@ -57,13 +57,13 @@
     #sky-canvas {
       position: absolute; inset: 0;
       width: 100%; height: 100%;
-      pointer-events: none;
+      pointer-events: auto;  /* enable tap for hit-test */
     }
 
     #ar-hud {
       position: absolute;
       top: calc(env(safe-area-inset-top, 0px) + 12px);
-      left: 0; right: 0;
+      left: 0; right: 64px; /* leave room for mode-btn */
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -145,6 +145,26 @@
       font-weight: 600;
       cursor: pointer;
     }
+
+    /* ── AR / Virtual mode button ── */
+    #mode-btn {
+      position: absolute;
+      top: calc(env(safe-area-inset-top, 0px) + 12px);
+      right: 16px;
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      border: 1px solid rgba(126,184,247,0.4);
+      background: rgba(10,10,30,0.72);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      font-size: 18px;
+      cursor: pointer;
+      z-index: 95;
+      display: flex; align-items: center; justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    #mode-btn:active { background: rgba(30,50,100,0.85); }
 
     /* ── AR Toggle Bar ── */
     #ar-toggles {
@@ -322,6 +342,10 @@
     <video id="camera-video" autoplay playsinline muted></video>
     <canvas id="sky-canvas"></canvas>
     <div id="ar-toggles"></div>
+    <!-- AR / Virtual mode toggle -->
+    <button id="mode-btn" title="가상 하늘 모드로 전환">
+      <span id="mode-icon">🔭</span>
+    </button>
     <div id="ar-hud">
       <div class="hud-chip" id="hud-dir">--</div>
       <div class="hud-chip" id="hud-time">--:--</div>

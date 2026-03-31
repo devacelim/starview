@@ -10,29 +10,33 @@ import { showPopup, hidePopup, initTabs, azToCompass, nowTimeStr } from './ui.js
 import { getPlanetPositions, getMoonPosition, getMoonPhase, raDecToAltAz } from './astronomy.js';
 import { renderEventsScreen } from './events.js';
 
-// ── State ────────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────────
 const state = {
   lat: null, lon: null,
   deviceAz: 0, deviceAlt: 0, deviceRoll: 0,
   planets: [],
   moon: null,
+  stars: null,      // populated by API; null = use local catalog
   date: new Date(),
   permGranted: false,
+  arMode: 'ar',     // 'ar' | 'virtual'
   toggles: { stars: true, constellations: true, moon: true, planets: true },
 };
 
 let currentTab = 'ar';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
-const permOverlay = document.getElementById('perm-overlay');
-const permBtn     = document.getElementById('perm-btn');
-const video       = document.getElementById('camera-video');
-const canvas      = document.getElementById('sky-canvas');
-const hudDir      = document.getElementById('hud-dir');
-const hudTime     = document.getElementById('hud-time');
-const hudObs      = document.getElementById('hud-obs');
+const permOverlay  = document.getElementById('perm-overlay');
+const permBtn      = document.getElementById('perm-btn');
+const video        = document.getElementById('camera-video');
+const canvas       = document.getElementById('sky-canvas');
+const hudDir       = document.getElementById('hud-dir');
+const hudTime      = document.getElementById('hud-time');
+const hudObs       = document.getElementById('hud-obs');
 const popupOverlay = document.getElementById('popup-overlay');
 const popupClose   = document.getElementById('popup-close');
+const modeBtn      = document.getElementById('mode-btn');
+const modeIcon     = document.getElementById('mode-icon');
 
 // ── Service Worker ────────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
@@ -61,6 +65,15 @@ function buildToggles() {
     bar.appendChild(btn);
   });
 }
+
+// ── AR / Virtual mode toggle ──────────────────────────────────────────────────
+modeBtn.addEventListener('click', () => {
+  state.arMode = state.arMode === 'ar' ? 'virtual' : 'ar';
+  const isAR = state.arMode === 'ar';
+  video.style.display     = isAR ? '' : 'none';
+  modeIcon.textContent    = isAR ? '🔭' : '📷';
+  modeBtn.title           = isAR ? '가상 하늘 모드로 전환' : 'AR 카메라 모드로 전환';
+});
 
 // ── Permissions ───────────────────────────────────────────────────────────────
 permBtn.addEventListener('click', requestAllPermissions);
@@ -93,7 +106,7 @@ async function requestAllPermissions() {
     return;
   }
 
-  // 3. Gyroscope (iOS 13+ must call inside user gesture)
+  // 3. Gyroscope (iOS 13+ requires gesture)
   if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
     try {
       const r = await DeviceOrientationEvent.requestPermission();
@@ -107,13 +120,30 @@ async function requestAllPermissions() {
 }
 
 // ── Device Orientation ────────────────────────────────────────────────────────
-window.addEventListener('deviceorientation', (e) => {
+// iOS does not provide North-referenced alpha — use webkitCompassHeading.
+// Android with deviceorientationabsolute gives North-referenced alpha,
+// but counterclockwise, so convert: azimuth = (360 - alpha) % 360.
+
+let hasAbsoluteOrientation = false;
+
+window.addEventListener('deviceorientationabsolute', (e) => {
+  hasAbsoluteOrientation = true;
   if (!state.permGranted) return;
-  // alpha: compass heading 0–360° (N=0)
-  // beta: -180–180°, 0=flat, 90=upright, >90=tilted toward sky
-  // gamma: left-right tilt
-  state.deviceAz  = e.alpha  ?? 0;
-  state.deviceAlt = (e.beta  ?? 90) - 90;  // 0 = horizon, 90 = zenith
+  // alpha: CCW from North → convert to CW azimuth
+  state.deviceAz   = (360 - (e.alpha ?? 0)) % 360;
+  state.deviceAlt  = (e.beta  ?? 90) - 90;
+  state.deviceRoll = e.gamma ?? 0;
+}, true);
+
+window.addEventListener('deviceorientation', (e) => {
+  if (!state.permGranted || hasAbsoluteOrientation) return;
+  // iOS: webkitCompassHeading = CW azimuth from true North
+  // Fallback for other browsers: use alpha as-is
+  const heading = typeof e.webkitCompassHeading === 'number'
+    ? e.webkitCompassHeading
+    : (e.alpha ?? 0);
+  state.deviceAz   = heading;
+  state.deviceAlt  = (e.beta  ?? 90) - 90;
   state.deviceRoll = e.gamma ?? 0;
 }, true);
 
@@ -134,19 +164,37 @@ function resizeCanvas() {
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-// ── Update sky objects (planets + moon) every 30 s ───────────────────────────
-function updateSkyObjects() {
+// ── Update celestial objects ───────────────────────────────────────────────────
+// Primary: fetch from /api/celestial (Supabase-backed backend).
+// Fallback: local astronomy.js calculations.
+
+async function updateSkyObjects() {
   if (!state.lat) return;
   const now = new Date();
 
-  // Planets
-  state.planets = getPlanetPositions(now, state.lat, state.lon);
+  try {
+    const res = await fetch(
+      `/api/celestial?lat=${state.lat}&lon=${state.lon}&ts=${now.getTime()}`,
+      { signal: AbortSignal.timeout(8000) }
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    state.stars   = data.stars;
+    state.planets = data.planets;
+    state.moon    = data.moon;
+  } catch (err) {
+    console.warn('[StarView] API fallback:', err.message);
+    localUpdateSkyObjects(now);
+  }
+}
 
-  // Moon position + phase
-  const { ra, dec } = getMoonPosition(now);
+function localUpdateSkyObjects(now = new Date()) {
+  state.planets = getPlanetPositions(now, state.lat, state.lon);
+  const { ra, dec }          = getMoonPosition(now);
   const { altitude, azimuth } = raDecToAltAz(ra, dec, now, state.lat, state.lon);
   const { phase, illumination } = getMoonPhase(now);
   state.moon = { ra, dec, altitude, azimuth, phase, illumination };
+  // state.stars stays null → skymap falls back to local catalog
 }
 
 // ── Render loop ───────────────────────────────────────────────────────────────
@@ -182,7 +230,6 @@ function switchTab(tab) {
 }
 initTabs(switchTab);
 
-// 이벤트 필터/기간 변경 → 즉시 재렌더
 document.getElementById('event-filter-select')?.addEventListener('change', () => {
   renderEventsScreen(Number(document.getElementById('event-range-select')?.value ?? 180));
 });
@@ -190,7 +237,7 @@ document.getElementById('event-range-select')?.addEventListener('change', () => 
   renderEventsScreen(Number(document.getElementById('event-range-select')?.value ?? 180));
 });
 
-// ── Canvas tap ────────────────────────────────────────────────────────────────
+// ── Canvas tap → hit test ──────────────────────────────────────────────────────
 canvas.addEventListener('click', (e) => {
   const rect = canvas.getBoundingClientRect();
   const hit  = hitTest(canvas, e.clientX - rect.left, e.clientY - rect.top, state);
@@ -200,7 +247,7 @@ canvas.addEventListener('click', (e) => {
     const s   = hit.data;
     const mag = s.mag >= 0 ? `+${s.mag}` : `${s.mag}`;
     showPopup(s.nameKo || s.name,
-      `<b>적경:</b> ${(s.ra/15).toFixed(2)}h &nbsp; <b>적위:</b> ${s.dec.toFixed(2)}°<br>
+      `<b>적경:</b> ${(s.ra / 15).toFixed(2)}h &nbsp; <b>적위:</b> ${s.dec.toFixed(2)}°<br>
        <b>겉보기 등급:</b> ${mag}<br><b>별자리:</b> ${s.constellation || '--'}`
     );
   } else if (hit.type === 'moon') {
@@ -223,13 +270,12 @@ canvas.addEventListener('click', (e) => {
 popupOverlay.addEventListener('click', (e) => { if (e.target === popupOverlay) hidePopup(); });
 popupClose.addEventListener('click', hidePopup);
 
-
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
   await loadSkyData();
   watchPosition();
   buildToggles();
-  updateSkyObjects();
+  await updateSkyObjects();
   setInterval(updateSkyObjects, 30000);
   renderLoop();
 }
