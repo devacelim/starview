@@ -2,7 +2,7 @@
  * main.js — StarView app entry point
  */
 
-const APP_VERSION = 'v1.3';
+const APP_VERSION = 'v1.4';
 
 import { loadSkyData, renderSky, hitTest } from './skymap.js';
 import { updateMoonScreen } from './moon.js';
@@ -140,7 +140,7 @@ window.addEventListener('deviceorientationabsolute', (e) => {
   hasAbsoluteSensor = true;
   hasSensor = true;
   state.deviceAz   = e.alpha  ?? 0;
-  state.deviceAlt  = (e.beta  ?? 90) - 90;
+  state.deviceAlt  = 90 - (e.beta  ?? 90);   // portrait upright(β=90)→0°, tilt back→positive
   state.deviceRoll = e.gamma  ?? 0;
 }, true);
 
@@ -157,7 +157,7 @@ window.addEventListener('deviceorientation', (e) => {
 
   hasSensor = true; // 드래그 비활성 (센서로 제어)
   state.deviceAz   = az;
-  state.deviceAlt  = (e.beta  ?? 90) - 90;
+  state.deviceAlt  = 90 - (e.beta  ?? 90);   // portrait upright(β=90)→0°, tilt back→positive
   state.deviceRoll = e.gamma  ?? 0;
 }, true);
 
@@ -176,8 +176,9 @@ canvas.addEventListener('mousemove', (e) => {
   if (isDragging && !hasSensor) {
     const dx = e.clientX - dragLastX;
     const dy = e.clientY - dragLastY;
-    state.deviceAz  = (state.deviceAz  - dx * 0.3 + 360) % 360;
-    state.deviceAlt = Math.max(-85, Math.min(85, state.deviceAlt + dy * 0.3));
+    const sens = state.fov / canvas.width;   // deg/px — scales with zoom
+    state.deviceAz  = (state.deviceAz  - dx * sens + 360) % 360;
+    state.deviceAlt = Math.max(-85, Math.min(85, state.deviceAlt + dy * sens));
   }
   dragLastX = e.clientX;
   dragLastY = e.clientY;
@@ -204,7 +205,7 @@ canvas.addEventListener('wheel', (e) => {
 // Arrow keys (pan) / +/- (zoom)
 window.addEventListener('keydown', (e) => {
   if (currentTab !== 'ar' || hasSensor) return;
-  const step = 3;
+  const step = state.fov / 20;   // proportional to zoom — finer control when zoomed in
   if (e.key === 'ArrowLeft')  state.deviceAz  = (state.deviceAz  - step + 360) % 360;
   if (e.key === 'ArrowRight') state.deviceAz  = (state.deviceAz  + step) % 360;
   if (e.key === 'ArrowUp')    state.deviceAlt = Math.min(85, state.deviceAlt + step);
@@ -234,8 +235,9 @@ canvas.addEventListener('touchmove', (e) => {
     // 단일 터치 스와이프 — 센서 없을 때 패닝
     const dx = e.touches[0].clientX - touchLastX;
     const dy = e.touches[0].clientY - touchLastY;
-    state.deviceAz  = (state.deviceAz  - dx * 0.3 + 360) % 360;
-    state.deviceAlt = Math.max(-85, Math.min(85, state.deviceAlt + dy * 0.3));
+    const sens = state.fov / canvas.width;   // deg/px — scales with zoom
+    state.deviceAz  = (state.deviceAz  - dx * sens + 360) % 360;
+    state.deviceAlt = Math.max(-85, Math.min(85, state.deviceAlt + dy * sens));
     touchLastX = e.touches[0].clientX;
     touchLastY = e.touches[0].clientY;
   } else if (e.touches.length === 2) {
@@ -345,9 +347,13 @@ function renderLoop() {
     hudDir.textContent  = `${azToCompass(state.deviceAz)} ${Math.round(state.deviceAz)}°`;
     hudTime.textContent = `${nowTimeStr()} ${APP_VERSION}`;
     if (state.lat != null) {
-      hudObs.textContent = `${state.lat.toFixed(2)}°N ${state.lon.toFixed(2)}°E ↑${Math.round(state.deviceAlt)}°`;
+      const latStr = `${Math.abs(state.lat).toFixed(2)}°${state.lat >= 0 ? 'N' : 'S'}`;
+      const lonStr = `${Math.abs(state.lon).toFixed(2)}°${state.lon >= 0 ? 'E' : 'W'}`;
+      const altSign = state.deviceAlt >= 0 ? '↑' : '↓';
+      hudObs.textContent = `${latStr} ${lonStr} ${altSign}${Math.abs(Math.round(state.deviceAlt))}°`;
     } else {
-      hudObs.textContent = `↑${Math.round(state.deviceAlt)}°`;
+      const altSign = state.deviceAlt >= 0 ? '↑' : '↓';
+      hudObs.textContent = `${altSign}${Math.abs(Math.round(state.deviceAlt))}°`;
     }
   }
 

@@ -62,24 +62,31 @@
 
     #ar-hud {
       position: absolute;
-      top: calc(env(safe-area-inset-top, 0px) + 12px);
-      left: 0; right: 64px; /* leave room for mode-btn */
+      top: calc(env(safe-area-inset-top, 0px) + 10px);
+      left: 0; right: 64px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0 16px;
+      padding: 0 14px;
       pointer-events: none;
     }
 
     .hud-chip {
-      background: var(--surface);
-      border: 1px solid rgba(126,184,247,0.25);
-      border-radius: 20px;
-      padding: 6px 14px;
-      font-size: 13px;
-      color: var(--accent);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+      background: rgba(6,10,26,0.72);
+      border: 1px solid rgba(90,150,255,0.2);
+      border-radius: 22px;
+      padding: 5px 13px;
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(170,210,255,0.9);
+      letter-spacing: 0.3px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+    #hud-dir {
+      color: rgba(255,175,80,0.95);
+      border-color: rgba(255,140,40,0.25);
     }
 
     /* ── Screens ── */
@@ -98,28 +105,35 @@
       bottom: 0; left: 0; right: 0;
       height: calc(var(--tab-h) + var(--safe-bottom));
       padding-bottom: var(--safe-bottom);
-      background: rgba(8,8,20,0.92);
-      border-top: 1px solid rgba(126,184,247,0.15);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      background: rgba(4,6,18,0.94);
+      border-top: 1px solid rgba(60,110,220,0.18);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
       display: flex;
       z-index: 100;
+      box-shadow: 0 -1px 30px rgba(0,0,0,0.5);
     }
 
     .tab-btn {
       flex: 1;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      gap: 3px;
+      gap: 4px;
       background: none; border: none;
-      color: var(--text-dim);
+      color: rgba(80,100,150,0.8);
       font-size: 10px;
+      font-weight: 500;
       cursor: pointer;
       transition: color 0.2s;
       -webkit-tap-highlight-color: transparent;
     }
-    .tab-btn.active { color: var(--accent); }
-    .tab-btn svg { width: 24px; height: 24px; }
+    .tab-btn.active {
+      color: rgba(140,195,255,0.95);
+    }
+    .tab-btn.active svg {
+      filter: drop-shadow(0 0 6px rgba(100,170,255,0.5));
+    }
+    .tab-btn svg { width: 22px; height: 22px; }
 
     /* ── Permission Overlay ── */
     #perm-overlay {
@@ -169,30 +183,33 @@
     /* ── AR Toggle Bar ── */
     #ar-toggles {
       position: absolute;
-      bottom: calc(var(--tab-h) + var(--safe-bottom) + 12px);
+      bottom: calc(var(--tab-h) + var(--safe-bottom) + 14px);
       left: 50%; transform: translateX(-50%);
-      display: flex; gap: 8px;
+      display: flex; gap: 6px;
       z-index: 90;
       pointer-events: auto;
     }
     .tog-btn {
       display: flex; align-items: center; gap: 4px;
-      padding: 6px 12px;
-      border-radius: 20px;
-      border: 1px solid rgba(126,184,247,0.25);
-      background: rgba(10,10,30,0.65);
-      color: #555;
+      padding: 6px 13px;
+      border-radius: 22px;
+      border: 1px solid rgba(70,120,220,0.2);
+      background: rgba(6,10,26,0.72);
+      color: rgba(90,110,160,0.8);
       font-size: 12px;
+      font-weight: 500;
       cursor: pointer;
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       transition: all 0.2s;
       -webkit-tap-highlight-color: transparent;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.35);
     }
     .tog-btn.active {
-      color: var(--accent);
-      border-color: rgba(126,184,247,0.6);
-      background: rgba(30,50,100,0.65);
+      color: rgba(150,200,255,0.95);
+      border-color: rgba(90,150,255,0.45);
+      background: rgba(15,30,80,0.75);
+      box-shadow: 0 2px 12px rgba(60,120,255,0.15);
     }
     .tog-btn span { font-size: 11px; }
 
@@ -209,12 +226,13 @@
     #popup-card {
       width: 100%;
       max-width: 480px;
-      background: rgba(14,14,32,0.97);
-      border-top: 1px solid rgba(126,184,247,0.2);
-      border-radius: 20px 20px 0 0;
+      background: rgba(6,8,22,0.97);
+      border-top: 1px solid rgba(80,140,255,0.25);
+      border-radius: 22px 22px 0 0;
       padding: 24px 24px calc(24px + var(--safe-bottom));
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      box-shadow: 0 -4px 40px rgba(0,0,0,0.6), inset 0 1px 0 rgba(100,160,255,0.08);
     }
     #popup-title { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
     #popup-body { font-size: 14px; color: var(--text-dim); line-height: 1.7; }
@@ -330,17 +348,18 @@
     #sky-tooltip {
       position: fixed;
       display: none;
-      background: rgba(10,10,30,0.88);
-      border: 1px solid rgba(126,184,247,0.3);
-      border-radius: 10px;
-      padding: 8px 12px;
+      background: rgba(6,10,26,0.88);
+      border: 1px solid rgba(90,150,255,0.3);
+      border-radius: 12px;
+      padding: 9px 14px;
       pointer-events: none;
       z-index: 200;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
     }
-    .tt-name { font-size: 14px; font-weight: 600; color: #e8eaf6; }
-    .tt-detail { font-size: 12px; color: #7986cb; margin-top: 2px; }
+    .tt-name { font-size: 14px; font-weight: 600; color: rgba(210,230,255,0.95); }
+    .tt-detail { font-size: 12px; color: rgba(120,170,240,0.8); margin-top: 3px; }
   </style>
 </head>
 <body>
@@ -351,7 +370,7 @@
     <h2>StarView</h2>
     <p>별자리 AR 뷰를 사용하려면<br>카메라, 위치, 자이로스코프 권한이 필요합니다.</p>
     <button id="perm-btn">시작하기</button>
-    <div style="font-size:12px;color:rgba(126,184,247,0.45);margin-top:6px;">StarView v1.3</div>
+    <div style="font-size:12px;color:rgba(126,184,247,0.45);margin-top:6px;">StarView v1.4</div>
   </div>
 
   <!-- AR View (tab 0) -->
