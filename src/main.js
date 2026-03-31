@@ -572,17 +572,21 @@ function searchObjects(query) {
     }
   });
 
-  // 별 (밝은 별 위주, nameKo 또는 name 검색)
+  // 별 / 위성 검색
   const stars = state.stars || getStarsData();
   stars.forEach((s) => {
     const kn = (s.nameKo || '').toLowerCase();
     const en = (s.name   || '').toLowerCase();
     if (!kn && !en) return;
-    if (s.mag > 4.0) return; // 너무 어두운 별 제외
+    const isSatellite = s.type === 'satellite';
+    if (!isSatellite && s.mag > 4.0) return; // 위성은 밝기 필터 제외
     if (kn.includes(q) || en.includes(q)) {
       results.push({
-        type: 'star', name: s.nameKo || s.name, icon: '★',
-        sub: `${s.constellation || ''} · ${s.mag >= 0 ? '+' : ''}${s.mag}등급`,
+        type: 'star', name: s.nameKo || s.name,
+        icon: isSatellite ? '🌑' : '★',
+        sub: isSatellite
+          ? `위성 · ${s.mag >= 0 ? '+' : ''}${s.mag}등급`
+          : `${s.constellation || ''} · ${s.mag >= 0 ? '+' : ''}${s.mag}등급`,
         ra: s.ra, dec: s.dec,
       });
     }

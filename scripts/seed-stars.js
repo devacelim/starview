@@ -35,6 +35,7 @@ const rows = stars.map(s => ({
   dec:           s.dec,
   mag:           s.mag,
   constellation: s.constellation ?? null,
+  type:          s.type ?? 'star',
 }));
 
 const res = await fetch(`${url}/rest/v1/stars`, {

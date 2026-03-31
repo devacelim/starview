@@ -289,3 +289,119 @@ export function getPlanetRiseSet(nameEn, date, lat, lon) {
 
 function toRad(d) { return d * Math.PI / 180; }
 function toDeg(r) { return r * 180 / Math.PI; }
+
+// ── Satellite position computation ────────────────────────────────────────────
+
+/**
+ * Compute geocentric RA/Dec of a satellite given:
+ *   T            — Julian centuries from J2000
+ *   parentName   — key in ORB (e.g. 'Jupiter')
+ *   L_deg        — satellite's current orbital longitude in planet equatorial frame (°)
+ *   a_km         — satellite's semi-major axis (km)
+ *   poleRA/Dec   — planet's north pole direction (J2000, degrees)
+ */
+function satFromParent(T, parentName, L_deg, a_km, poleRA, poleDec) {
+  const earth  = helioEcl(T, 'Earth');
+  const planet = helioEcl(T, parentName);
+
+  // Geocentric RA/Dec of parent planet
+  const geo = helioToGeoEcl(earth, planet);
+  const { ra: pRA, dec: pDec } = ecl2eq(geo.lon, geo.lat, T);
+
+  // Earth–planet distance in km
+  const ex  = earth.r  * Math.cos(toRad(earth.lon));
+  const ey  = earth.r  * Math.sin(toRad(earth.lon));
+  const prr = planet.r * Math.cos(toRad(planet.lat));
+  const px  = prr * Math.cos(toRad(planet.lon));
+  const py  = prr * Math.sin(toRad(planet.lon));
+  const pz  = planet.r * Math.sin(toRad(planet.lat));
+  const dist_km = Math.sqrt((px - ex) ** 2 + (py - ey) ** 2 + pz ** 2) * 149597870.7;
+
+  // Angular semi-major axis (degrees)
+  const a_deg = (a_km / dist_km) * (180 / Math.PI);
+
+  // Sub-Earth latitude on planet: determines how elliptical the orbit appears
+  const De = Math.asin(Math.max(-1, Math.min(1,
+    -Math.sin(toRad(poleDec)) * Math.sin(toRad(pDec))
+    - Math.cos(toRad(poleDec)) * Math.cos(toRad(pDec)) * Math.cos(toRad(pRA - poleRA))
+  )));
+
+  // Sky-plane offsets: E-W foreshortened by cos(pDec), N-S foreshortened by sin(De)
+  const Lr   = toRad(L_deg);
+  const dRA  = (a_deg * Math.cos(Lr)) / Math.cos(toRad(pDec));
+  const dDec =  a_deg * Math.sin(Lr) * Math.sin(De);
+
+  return { ra: norm360(pRA + dRA), dec: pDec + dDec };
+}
+
+/**
+ * Compute dynamic positions for all major planetary satellites.
+ * Returns array of { id, ra, dec } for merging into the star catalog.
+ *
+ * Phase accuracy:
+ *   Galilean moons — Meeus Ch.44 mean longitudes + main Laplace resonance (~0.01°)
+ *   All other moons — correct orbital period, phase offset is approximate
+ *     (no precise L0 epoch calibration; position angle may differ from truth by up to ~180°)
+ */
+export function getSatellitePositions(date) {
+  const jd = dateToJD(date);
+  const d  = jd - 2451545.0;   // days from J2000
+  const T  = d / 36525;
+
+  // Galilean moon mean longitudes (Meeus Ch.44) + main Laplace resonance corrections
+  const g1 = norm360(106.07719 + 203.4889538 * d);
+  const g2 = norm360(175.73161 + 101.3747235 * d);
+  const g3 = norm360(120.55883 +  50.3176081 * d);
+  const g4 = norm360( 84.44459 +  21.5710715 * d);
+  const l1 = norm360(g1 + 0.472 * Math.sin(toRad(2 * (g1 - g2))));
+  const l2 = norm360(g2 + 0.473 * Math.sin(toRad(2 * (g2 - g3))));
+  const l3 = norm360(g3 + 0.199 * Math.sin(toRad(2 * (g3 - g4))));
+  const l4 = g4;
+
+  // Mean longitude helper for moons without precise L0 (correct period, approx phase)
+  const ml = (n) => norm360(n * d);
+
+  // Planet north-pole directions (J2000)
+  const J = { ra: 268.057, dec:  64.495 }; // Jupiter
+  const S = { ra:  40.589, dec:  83.537 }; // Saturn
+  const U = { ra: 257.311, dec: -15.175 }; // Uranus
+  const N = { ra: 299.329, dec:  42.950 }; // Neptune
+  const M = { ra: 317.681, dec:  52.887 }; // Mars
+
+  const sat = (parent, L, a_km, pole) =>
+    satFromParent(T, parent, L, a_km, pole.ra, pole.dec);
+
+  return [
+    // ── Jupiter — Galilean moons (Meeus-accurate) ──────────────────────────
+    { id: 'io',        ...sat('Jupiter', l1,         421800, J) },
+    { id: 'europa',    ...sat('Jupiter', l2,         671100, J) },
+    { id: 'ganymede',  ...sat('Jupiter', l3,        1070400, J) },
+    { id: 'callisto',  ...sat('Jupiter', l4,        1882700, J) },
+
+    // ── Saturn — mean periods, approx phase ───────────────────────────────
+    { id: 'mimas',     ...sat('Saturn', ml( 381.995),   185520, S) },
+    { id: 'enceladus', ...sat('Saturn', ml( 262.732),   238020, S) },
+    { id: 'tethys',    ...sat('Saturn', ml( 190.698),   294619, S) },
+    { id: 'dione',     ...sat('Saturn', ml( 131.535),   377396, S) },
+    { id: 'rhea',      ...sat('Saturn', ml(  79.690),   527108, S) },
+    { id: 'titan',     ...sat('Saturn', ml(  22.577),  1221870, S) },
+    { id: 'hyperion',  ...sat('Saturn', ml(  16.920),  1481010, S) },
+    { id: 'iapetus',   ...sat('Saturn', ml(   4.538),  3560820, S) },
+    { id: 'phoebe',    ...sat('Saturn', ml(  -0.657), 12944300, S) }, // retrograde
+
+    // ── Uranus — prograde in equatorial frame ─────────────────────────────
+    { id: 'miranda',   ...sat('Uranus', ml( 254.691),   129390, U) },
+    { id: 'ariel',     ...sat('Uranus', ml( 142.836),   191020, U) },
+    { id: 'umbriel',   ...sat('Uranus', ml(  86.869),   266300, U) },
+    { id: 'titania',   ...sat('Uranus', ml(  41.351),   435910, U) },
+    { id: 'oberon',    ...sat('Uranus', ml(  26.740),   583520, U) },
+
+    // ── Neptune ───────────────────────────────────────────────────────────
+    { id: 'triton',    ...sat('Neptune', ml( -61.257),   354759, N) }, // retrograde
+    { id: 'nereid',    ...sat('Neptune', ml(   1.000),  5513818, N) },
+
+    // ── Mars ──────────────────────────────────────────────────────────────
+    { id: 'phobos',    ...sat('Mars', ml(1128.845),    9376, M) },
+    { id: 'deimos',    ...sat('Mars', ml( 285.162),   23463, M) },
+  ];
+}

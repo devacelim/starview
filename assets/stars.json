@@ -144,5 +144,36 @@
   { "id": "alphecca",  "name": "Alphecca",   "nameKo": "알페카",     "ra": 233.6720, "dec":  26.7147, "mag":  2.22, "constellation": "CrB" },
   { "id": "unukalhai", "name": "Unukalhai",  "nameKo": "우누칼하이", "ra": 236.0669, "dec":   6.4256, "mag":  2.63, "constellation": "Ser" },
   { "id": "eta_oph",   "name": "Sabik",      "nameKo": "에타 오피우쿠스","ra":258.0378,"dec":-15.7249,"mag":2.43,"constellation":"Oph"},
-  { "id": "phad",      "name": "Phecda",     "nameKo": "페크다",     "ra": 178.4577, "dec":  53.6948, "mag":  2.44, "constellation": "UMa" }
+  { "id": "phad",      "name": "Phecda",     "nameKo": "페크다",     "ra": 178.4577, "dec":  53.6948, "mag":  2.44, "constellation": "UMa" },
+
+  // ── 위성 (2026-03-31 기준 모행성 위치) ────────────────────────────────────
+  // 목성 갈릴레이 위성 (목성 RA≈113°, Dec≈+22°, 게자리)
+  { "id": "ganymede",  "name": "Ganymede",  "nameKo": "가니메데",   "ra": 113.2, "dec":  22.1,  "mag":  4.61, "constellation": "Cnc", "type": "satellite" },
+  { "id": "io",        "name": "Io",        "nameKo": "이오",       "ra": 113.0, "dec":  22.0,  "mag":  5.02, "constellation": "Cnc", "type": "satellite" },
+  { "id": "europa",    "name": "Europa",    "nameKo": "유로파",     "ra": 113.1, "dec":  22.0,  "mag":  5.29, "constellation": "Cnc", "type": "satellite" },
+  { "id": "callisto",  "name": "Callisto",  "nameKo": "칼리스토",   "ra": 113.3, "dec":  22.1,  "mag":  5.65, "constellation": "Cnc", "type": "satellite" },
+  // 토성 주요 위성 (토성 RA≈346°, Dec≈-12°, 물병자리)
+  { "id": "titan",     "name": "Titan",     "nameKo": "타이탄",     "ra": 346.0, "dec": -12.0,  "mag":  8.40, "constellation": "Aqr", "type": "satellite" },
+  { "id": "rhea",      "name": "Rhea",      "nameKo": "레아",       "ra": 346.0, "dec": -12.0,  "mag":  9.65, "constellation": "Aqr", "type": "satellite" },
+  { "id": "tethys",    "name": "Tethys",    "nameKo": "테티스",     "ra": 346.0, "dec": -12.0,  "mag": 10.30, "constellation": "Aqr", "type": "satellite" },
+  { "id": "dione",     "name": "Dione",     "nameKo": "디오네",     "ra": 346.0, "dec": -12.0,  "mag": 10.40, "constellation": "Aqr", "type": "satellite" },
+  { "id": "iapetus",   "name": "Iapetus",   "nameKo": "이아페투스", "ra": 346.0, "dec": -12.0,  "mag": 11.00, "constellation": "Aqr", "type": "satellite" },
+  { "id": "enceladus", "name": "Enceladus", "nameKo": "엔셀라두스", "ra": 346.0, "dec": -12.0,  "mag": 11.70, "constellation": "Aqr", "type": "satellite" },
+  { "id": "mimas",     "name": "Mimas",     "nameKo": "미마스",     "ra": 346.0, "dec": -12.0,  "mag": 12.90, "constellation": "Aqr", "type": "satellite" },
+  { "id": "hyperion",  "name": "Hyperion",  "nameKo": "히페리온",   "ra": 346.0, "dec": -12.0,  "mag": 14.20, "constellation": "Aqr", "type": "satellite" },
+  { "id": "phoebe",    "name": "Phoebe",    "nameKo": "포이베",     "ra": 346.0, "dec": -12.0,  "mag": 16.50, "constellation": "Aqr", "type": "satellite" },
+  // 천왕성 주요 위성 (천왕성 RA≈52°, Dec≈+19°, 황소자리)
+  { "id": "titania",   "name": "Titania",   "nameKo": "티타니아",   "ra":  52.0, "dec":  19.0,  "mag": 13.90, "constellation": "Tau", "type": "satellite" },
+  { "id": "oberon",    "name": "Oberon",    "nameKo": "오베론",     "ra":  52.0, "dec":  19.0,  "mag": 14.10, "constellation": "Tau", "type": "satellite" },
+  { "id": "ariel",     "name": "Ariel",     "nameKo": "아리엘",     "ra":  52.0, "dec":  19.0,  "mag": 14.40, "constellation": "Tau", "type": "satellite" },
+  { "id": "umbriel",   "name": "Umbriel",   "nameKo": "움브리엘",   "ra":  52.0, "dec":  19.0,  "mag": 15.00, "constellation": "Tau", "type": "satellite" },
+  { "id": "miranda",   "name": "Miranda",   "nameKo": "미란다",     "ra":  52.0, "dec":  19.0,  "mag": 15.80, "constellation": "Tau", "type": "satellite" },
+  // 해왕성 주요 위성 (해왕성 RA≈2°, Dec≈-3°, 물고기자리)
+  { "id": "triton",    "name": "Triton",    "nameKo": "트리톤",     "ra":   2.0, "dec":  -3.0,  "mag": 13.50, "constellation": "Psc", "type": "satellite" },
+  { "id": "nereid",    "name": "Nereid",    "nameKo": "네레이드",   "ra":   2.0, "dec":  -3.0,  "mag": 19.70, "constellation": "Psc", "type": "satellite" },
+  // 명왕성 위성 (명왕성 RA≈298.8°, Dec≈-22°, 궁수자리)
+  { "id": "charon",    "name": "Charon",    "nameKo": "카론",       "ra": 298.8, "dec": -22.0,  "mag": 15.50, "constellation": "Sgr", "type": "satellite" },
+  // 화성 위성 (화성 RA≈69.5°, Dec≈+20.5°, 황소자리)
+  { "id": "phobos",    "name": "Phobos",    "nameKo": "포보스",     "ra":  69.5, "dec":  20.5,  "mag": 11.30, "constellation": "Tau", "type": "satellite" },
+  { "id": "deimos",    "name": "Deimos",    "nameKo": "데이모스",   "ra":  69.5, "dec":  20.5,  "mag": 12.40, "constellation": "Tau", "type": "satellite" }
 ]
