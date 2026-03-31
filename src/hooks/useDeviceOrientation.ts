@@ -16,6 +16,27 @@ type DOEWithPermission = typeof DeviceOrientationEvent & {
   requestPermission?: () => Promise<string>;
 };
 
+/**
+ * Gimbal-lock-free az/alt from full 3-axis rotation matrix.
+ * Uses W3C DeviceOrientation convention: R = Rz(α)·Rx(β)·Ry(γ)
+ * Camera direction = back camera = -Z of screen frame, transformed to ENU world frame.
+ */
+function deviceOrientationToAzAlt(alpha: number, beta: number, gamma: number): { az: number; alt: number } {
+  const D  = Math.PI / 180;
+  const cA = Math.cos(alpha * D), sA = Math.sin(alpha * D);
+  const cB = Math.cos(beta  * D), sB = Math.sin(beta  * D);
+  const cG = Math.cos(gamma * D), sG = Math.sin(gamma * D);
+
+  // Camera direction vector in East-North-Up world frame
+  const east  = -(cA * sG - sA * sB * cG);
+  const north =   sA * sG + cA * sB * cG;
+  const up    =  -cB * cG;
+
+  const alt = Math.asin(Math.max(-1, Math.min(1, up))) / D;
+  const az  = ((Math.atan2(east, north) / D) + 360) % 360;
+  return { az, alt };
+}
+
 export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
   const startedRef = useRef(false);
   const hasAbsoluteSensorRef = useRef(false);
@@ -35,9 +56,13 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
   function handleAbsolute(e: DeviceOrientationEvent) {
     hasAbsoluteSensorRef.current = true;
     skyStateRef.current.hasSensor = true;
-    skyStateRef.current.deviceAz   = smoothAz(e.alpha ?? 0);
-    skyStateRef.current.deviceAlt  = smoothAlt((e.beta ?? 90) - 90);
-    skyStateRef.current.deviceRoll = e.gamma ?? 0;
+    if (e.alpha == null || e.beta == null || e.gamma == null) return;
+
+    // Rotation-matrix approach: stable at any elevation (no gimbal lock)
+    const { az, alt } = deviceOrientationToAzAlt(e.alpha, e.beta, e.gamma);
+    skyStateRef.current.deviceAz   = smoothAz(az);
+    skyStateRef.current.deviceAlt  = smoothAlt(alt);
+    skyStateRef.current.deviceRoll = e.gamma;
   }
 
   function handleOrientation(e: DeviceOrientationEvent) {
@@ -51,14 +76,23 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     if (!hasCompass && !hasAbsAlpha && e.alpha === 0 && e.beta === 0 && e.gamma === 0) return;
     if (e.beta == null) return;
 
-    const az = hasCompass  ? wk!
-             : hasAbsAlpha ? e.alpha!
-             :               (e.alpha ?? 0);
-
     skyStateRef.current.hasSensor = true;
-    skyStateRef.current.deviceAz   = smoothAz(az);
-    skyStateRef.current.deviceAlt  = smoothAlt(e.beta - 90);
     skyStateRef.current.deviceRoll = e.gamma ?? 0;
+
+    if (hasCompass) {
+      // iOS webkitCompassHeading: already tilt-compensated, use directly for azimuth.
+      // Altitude: compute from beta/gamma via rotation matrix formula (gamma-aware).
+      const D   = Math.PI / 180;
+      const alt = Math.asin(Math.max(-1, Math.min(1, -Math.cos(e.beta * D) * Math.cos((e.gamma ?? 0) * D)))) / D;
+      skyStateRef.current.deviceAz  = smoothAz(wk!);
+      skyStateRef.current.deviceAlt = smoothAlt(alt);
+    } else {
+      // Non-iOS fallback: full rotation matrix for both az and alt
+      const alpha = hasAbsAlpha ? e.alpha! : (e.alpha ?? 0);
+      const { az, alt } = deviceOrientationToAzAlt(alpha, e.beta, e.gamma ?? 0);
+      skyStateRef.current.deviceAz  = smoothAz(az);
+      skyStateRef.current.deviceAlt = smoothAlt(alt);
+    }
   }
 
   function startSensorListeners() {

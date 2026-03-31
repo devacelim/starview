@@ -25,6 +25,8 @@ export default function SkyCanvas({ skyStateRef, onHit, onHover }: Props) {
 
     let isDragging = false, dragLastX = 0, dragLastY = 0;
     let touchLastX = 0, touchLastY = 0, lastPinchDist: number | null = null;
+    let isTouching = false;
+    let lastCenterKey = '';
 
     const onMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
@@ -60,6 +62,7 @@ export default function SkyCanvas({ skyStateRef, onHit, onHover }: Props) {
     };
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 1) {
+        isTouching = true;
         touchLastX = e.touches[0].clientX; touchLastY = e.touches[0].clientY; lastPinchDist = null;
         // Show hover tooltip on touch (mobile)
         const rect = canvas.getBoundingClientRect();
@@ -96,6 +99,10 @@ export default function SkyCanvas({ skyStateRef, onHit, onHover }: Props) {
       if (e.touches.length === 1) {
         touchLastX = e.touches[0].clientX; touchLastY = e.touches[0].clientY;
       }
+      if (e.touches.length === 0) {
+        isTouching = false;
+        lastCenterKey = '__reset__'; // force re-check on next frame
+      }
     };
     const onClick = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
@@ -117,6 +124,18 @@ export default function SkyCanvas({ skyStateRef, onHit, onHover }: Props) {
     const loop = () => {
       skyStateRef.current.date = new Date();
       renderSky(canvas, skyStateRef.current);
+
+      // Center crosshair focus tooltip (AR mode: object drifts into view)
+      if (!isTouching) {
+        const cx = canvas.width / 2, cy = canvas.height / 2;
+        const hit = hitTest(canvas, cx, cy, skyStateRef.current);
+        const key = hit ? `${hit.type}-${(hit.data as { id?: string | number }).id ?? hit.type}` : '';
+        if (key !== lastCenterKey) {
+          lastCenterKey = key;
+          onHover(hit, cx, cy);
+        }
+      }
+
       rafId = requestAnimationFrame(loop);
     };
     rafId = requestAnimationFrame(loop);
