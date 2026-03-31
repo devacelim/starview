@@ -22,6 +22,7 @@ const state = {
   date: new Date(),
   permGranted: false,
   arMode: 'ar',
+  fov: 60,   // horizontal field-of-view in degrees (zoom)
   toggles: { stars: true, constellations: true, moon: true, planets: true },
 };
 
@@ -189,15 +190,14 @@ canvas.addEventListener('mousemove', (e) => {
 });
 canvas.addEventListener('mouseleave', hideTooltip);
 
-// Scroll to look around (desktop)
+// Scroll = zoom (change FOV)
 canvas.addEventListener('wheel', (e) => {
-  if (hasSensor) return;
+  if (currentTab !== 'ar') return;
   e.preventDefault();
-  state.deviceAz  = (state.deviceAz  - e.deltaX * 0.15 + 360) % 360;
-  state.deviceAlt = Math.max(-85, Math.min(85, state.deviceAlt - e.deltaY * 0.15));
+  state.fov = Math.max(15, Math.min(120, state.fov + e.deltaY * 0.05));
 }, { passive: false });
 
-// Arrow keys
+// Arrow keys (pan) / +/- (zoom)
 window.addEventListener('keydown', (e) => {
   if (currentTab !== 'ar' || hasSensor) return;
   const step = 3;
@@ -205,7 +205,31 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowRight') state.deviceAz  = (state.deviceAz  + step) % 360;
   if (e.key === 'ArrowUp')    state.deviceAlt = Math.min(85, state.deviceAlt + step);
   if (e.key === 'ArrowDown')  state.deviceAlt = Math.max(-85, state.deviceAlt - step);
+  if (e.key === '+' || e.key === '=') state.fov = Math.max(15, state.fov - 5);
+  if (e.key === '-')                  state.fov = Math.min(120, state.fov + 5);
 });
+
+// Pinch-to-zoom (mobile)
+let lastPinchDist = null;
+canvas.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 2) {
+    lastPinchDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+  }
+}, { passive: true });
+canvas.addEventListener('touchmove', (e) => {
+  if (e.touches.length === 2 && lastPinchDist !== null) {
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    state.fov = Math.max(15, Math.min(120, state.fov * (lastPinchDist / dist)));
+    lastPinchDist = dist;
+  }
+}, { passive: true });
+canvas.addEventListener('touchend', () => { lastPinchDist = null; }, { passive: true });
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 function showTooltip(hit, x, y) {

@@ -60,17 +60,19 @@ function moonRaDec(jd) {
 }
 
 function moonPhase(jd) {
-  const T  = (jd - 2451545.0) / 36525;
-  const D  = toR(mod(297.85036  + 445267.111480 * T - 0.0019142 * T * T, 360));
-  const M  = toR(mod(357.52772  + 35999.050340  * T - 0.0001603 * T * T, 360));
-  const Mp = toR(mod(134.96298  + 477198.867398 * T + 0.0086972 * T * T, 360));
-  const i  = 180 - toD(D) - 6.289 * Math.sin(Mp) + 2.1 * Math.sin(M)
+  const T      = (jd - 2451545.0) / 36525;
+  const Dangle = mod(297.85036 + 445267.111480 * T - 0.0019142 * T * T, 360);
+  const D      = toR(Dangle);
+  const M      = toR(mod(357.52772 + 35999.050340 * T - 0.0001603 * T * T, 360));
+  const Mp     = toR(mod(134.96298 + 477198.867398 * T + 0.0086972 * T * T, 360));
+  const i      = 180 - Dangle
+    - 6.289 * Math.sin(Mp) + 2.1 * Math.sin(M)
     - 1.274 * Math.sin(2*D - Mp) - 0.658 * Math.sin(2*D)
     - 0.214 * Math.sin(2*Mp) - 0.11 * Math.sin(D);
-  return {
-    illumination: (1 + Math.cos(toR(i))) / 2,
-    phase: mod((jd - 2451550.1) / 29.53058867, 1),
-  };
+  const illumination = (1 + Math.cos(toR(i))) / 2;
+  // phase derived from same formula as illumination to keep drawing consistent
+  const phase = Dangle < 180 ? illumination / 2 : 1 - illumination / 2;
+  return { illumination, phase };
 }
 
 const PLANET_DEFS = [

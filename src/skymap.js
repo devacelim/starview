@@ -92,11 +92,11 @@ function drawVirtualSky(ctx, W, H, deviceAz, deviceAlt, fov) {
  * Uses state.stars (API, pre-computed alt/az) if available, else local catalog.
  */
 export function renderSky(canvas, state) {
-  const { lat, lon, deviceAz, deviceAlt, planets, moon, date, toggles, arMode } = state;
+  const { lat, lon, deviceAz, deviceAlt, planets, moon, date, toggles, arMode, fov: stateFov } = state;
   const ctx = canvas.getContext('2d');
   const W   = canvas.width;
   const H   = canvas.height;
-  const fov = 60; // horizontal FOV degrees
+  const fov = stateFov ?? 60; // horizontal FOV degrees (zoom)
 
   // Background / clear
   if (arMode === 'virtual') {
@@ -261,10 +261,10 @@ export function renderSky(canvas, state) {
  * Handles both API-provided (pre-computed) and locally-computed positions.
  */
 export function hitTest(canvas, tapX, tapY, state) {
-  const { lat, lon, deviceAz, deviceAlt, planets, moon, date } = state;
+  const { lat, lon, deviceAz, deviceAlt, planets, moon, date, fov: stateFov } = state;
   const W   = canvas.width;
   const H   = canvas.height;
-  const fov = 60;
+  const fov = stateFov ?? 60;
 
   let best = null, bestDist = 44;
 

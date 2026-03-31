@@ -1,4 +1,4 @@
-const CACHE_NAME = 'starview-v4';
+const CACHE_NAME = 'starview-v5';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
