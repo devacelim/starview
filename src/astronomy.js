@@ -97,24 +97,29 @@ export function getMoonPosition(date) {
 
 /**
  * Moon phase: illumination fraction + 0–1 cycle
+ * phase and illumination are derived from the same geometric formula to stay consistent.
  */
 export function getMoonPhase(date) {
   const jd = dateToJD(date);
   const T  = (jd - 2451545.0) / 36525;
-  const D  = toRad(((297.85036 + 445267.111480 * T - 0.0019142 * T*T) % 360 + 360) % 360);
+
+  // Mean elongation of the moon from the sun (degrees, before perturbations)
+  const Dangle = ((297.85036 + 445267.111480 * T - 0.0019142 * T*T) % 360 + 360) % 360;
+  const D  = toRad(Dangle);
   const M  = toRad(((357.52772 + 35999.050340  * T - 0.0001603 * T*T) % 360 + 360) % 360);
   const Mp = toRad(((134.96298 + 477198.867398 * T + 0.0086972 * T*T) % 360 + 360) % 360);
 
-  const i = 180 - toDeg(D)
+  const i = 180 - Dangle
           - 6.289 * Math.sin(Mp) + 2.1 * Math.sin(M)
           - 1.274 * Math.sin(2*D - Mp) - 0.658 * Math.sin(2*D)
           - 0.214 * Math.sin(2*Mp) - 0.11 * Math.sin(D);
 
   const illumination = (1 + Math.cos(toRad(i))) / 2;
 
-  const synodicDays = 29.53058867;
-  const knownNewMoon = 2451550.1;
-  const phase = (((jd - knownNewMoon) % synodicDays) / synodicDays + 1) % 1;
+  // Derive phase consistently: waxing (0→0.5) if D < 180°, waning (0.5→1) otherwise.
+  // This avoids the mismatch between the geometric and calendar-based formulas.
+  const isWaxing = Dangle < 180;
+  const phase = isWaxing ? illumination / 2 : 1 - illumination / 2;
 
   return { illumination, phase };
 }

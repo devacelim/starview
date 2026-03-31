@@ -105,7 +105,7 @@ export function renderSky(canvas, state) {
     ctx.clearRect(0, 0, W, H);
   }
 
-  if (!lat || !lon) return;
+  if (lat == null || lon == null) return;
 
   const tog = toggles || { stars: true, constellations: true, moon: true, planets: true };
 

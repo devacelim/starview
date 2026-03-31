@@ -28,6 +28,9 @@ const state = {
 let currentTab = 'ar';
 let hasSensor   = false;  // becomes true when any orientation event fires
 
+// 모바일 여부 (터치 지원 = 물리 센서 있음)
+const isMobile = navigator.maxTouchPoints > 0;
+
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const permOverlay  = document.getElementById('perm-overlay');
 const permBtn      = document.getElementById('perm-btn');
@@ -92,8 +95,9 @@ async function requestAllPermissions() {
       )
     );
   } catch {
-    alert('위치 권한이 필요합니다. 설정에서 위치 허용 후 다시 시도해주세요.');
-    return;
+    // 위치 권한 없이도 계속 (기본: 서울)
+    state.lat = 37.5665;
+    state.lon = 126.9780;
   }
 
   try {
@@ -129,24 +133,21 @@ async function requestAllPermissions() {
 // Both are already in standard compass bearing — NO inversion needed.
 
 window.addEventListener('deviceorientationabsolute', (e) => {
+  if (!isMobile || !state.permGranted) return;
   hasSensor = true;
-  if (!state.permGranted) return;
-  state.deviceAz   = e.alpha  ?? 0;         // Chrome Android: already CW from North
+  state.deviceAz   = e.alpha  ?? 0;
   state.deviceAlt  = (e.beta  ?? 90) - 90;
   state.deviceRoll = e.gamma  ?? 0;
 }, true);
 
 window.addEventListener('deviceorientation', (e) => {
-  if (!state.permGranted) return;
+  if (!isMobile || !state.permGranted) return;
   if (hasSensor) return; // prefer absolute event
 
   // iOS: webkitCompassHeading = CW from true North
   const hasCompass = typeof e.webkitCompassHeading === 'number';
   const az = hasCompass ? e.webkitCompassHeading : (e.alpha ?? 0);
-
-  // 데스크탑 spurious 이벤트 무시: webkitCompassHeading 없고 beta도 null이면 실제 센서 아님
   if (!hasCompass && e.beta == null) return;
-  // 모든 값이 0이면 초기화 중인 이벤트 — 무시
   if (az === 0 && (e.beta === 0 || e.beta == null) && (e.gamma === 0 || e.gamma == null)) return;
 
   hasSensor = true;
@@ -291,7 +292,11 @@ function renderLoop() {
     renderSky(canvas, state);
     hudDir.textContent  = `${azToCompass(state.deviceAz)} ${Math.round(state.deviceAz)}°`;
     hudTime.textContent = `${nowTimeStr()} ${APP_VERSION}`;
-    hudObs.textContent  = `고도 ${Math.round(state.deviceAlt)}°`;
+    if (state.lat != null) {
+      hudObs.textContent = `${state.lat.toFixed(2)}°N ${state.lon.toFixed(2)}°E ↑${Math.round(state.deviceAlt)}°`;
+    } else {
+      hudObs.textContent = `↑${Math.round(state.deviceAlt)}°`;
+    }
   }
 
   requestAnimationFrame(renderLoop);
