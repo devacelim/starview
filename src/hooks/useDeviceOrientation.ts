@@ -40,14 +40,17 @@ function deviceOrientationToAzAlt(alpha: number, beta: number, gamma: number): {
 export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
   const startedRef = useRef(false);
   const hasAbsoluteSensorRef = useRef(false);
+  const hasFirstReadingRef = useRef(false);  // bypass filter on first event
 
   function smoothAz(rawAz: number): number {
+    if (!hasFirstReadingRef.current) return rawAz;  // first reading: set directly
     const dAz = ((rawAz - skyStateRef.current.deviceAz + 540) % 360) - 180;
     if (Math.abs(dAz) > AZ_GLITCH) return skyStateRef.current.deviceAz;
     return (skyStateRef.current.deviceAz + dAz * AZ_ALPHA + 360) % 360;
   }
 
   function smoothAlt(rawAlt: number): number {
+    if (!hasFirstReadingRef.current) return rawAlt;  // first reading: set directly
     const dAlt = rawAlt - skyStateRef.current.deviceAlt;
     if (Math.abs(dAlt) > ALT_GLITCH) return skyStateRef.current.deviceAlt;
     return skyStateRef.current.deviceAlt + dAlt * ALT_ALPHA;
@@ -63,6 +66,7 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     skyStateRef.current.deviceAz   = smoothAz(az);
     skyStateRef.current.deviceAlt  = smoothAlt(alt);
     skyStateRef.current.deviceRoll = e.gamma;
+    hasFirstReadingRef.current = true;
   }
 
   function handleOrientation(e: DeviceOrientationEvent) {
@@ -93,6 +97,7 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
       skyStateRef.current.deviceAz  = smoothAz(az);
       skyStateRef.current.deviceAlt = smoothAlt(alt);
     }
+    hasFirstReadingRef.current = true;
   }
 
   function startSensorListeners() {
