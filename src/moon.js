@@ -6,9 +6,9 @@ import { getMoonPhase, moonPhaseName, getMoonRiseSet } from './astronomy.js';
 
 /**
  * Draw moon phase on a canvas element.
- * Algorithm: draw full lit circle, then overlay dark shadow on the unlit side.
+ * Algorithm: draw dark base circle, then draw lit region (yellow) on top.
  *   - phase 0   = new moon  (all dark)
- *   - phase 0.5 = full moon (all lit)
+ *   - phase 0.5 = full moon (all lit/yellow)
  *   - phase 1   = new moon  (all dark)
  */
 export function drawMoon(canvas, phase) {
@@ -32,20 +32,23 @@ export function drawMoon(canvas, phase) {
   ctx.fill();
   ctx.restore();
 
-  // 1. Draw fully lit circle (base)
+  // 1. Draw dark base circle (unlit side)
+  const darkGrad = ctx.createRadialGradient(cx - R * 0.2, cy - R * 0.2, R * 0.1, cx, cy, R);
+  darkGrad.addColorStop(0, '#1a1c2a');
+  darkGrad.addColorStop(1, '#0a0b14');
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.fillStyle = darkGrad;
+  ctx.fill();
+  ctx.restore();
+
+  // 2. Draw lit region (yellow) on top
   const litGrad = ctx.createRadialGradient(cx - R * 0.2, cy - R * 0.2, R * 0.1, cx, cy, R);
   litGrad.addColorStop(0, '#f8f4d0');
   litGrad.addColorStop(0.5, '#d4cfa0');
   litGrad.addColorStop(1, '#b0a870');
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.fillStyle = litGrad;
-  ctx.fill();
-  ctx.restore();
-
-  // 2. Draw dark shadow overlay (unlit portion)
-  _drawShadow(ctx, cx, cy, R, phase, '#0d1020');
+  _drawLitRegion(ctx, cx, cy, R, phase, litGrad);
 
   // Craters
   _drawCraters(ctx, cx, cy, R, phase);
@@ -61,27 +64,28 @@ export function drawMoon(canvas, phase) {
 }
 
 /**
- * Draw the dark shadow that covers the unlit side.
- * For waxing (phase 0→0.5): right side lit  → shadow on LEFT
- * For waning (phase 0.5→1): left side lit   → shadow on RIGHT
+ * Draw the lit (yellow) region on top of a dark base.
+ * For waxing (phase 0→0.5): right side lit
+ * For waning (phase 0.5→1): left side lit
  *
- * Each half is further split into CRESCENT (illum < 0.5) and GIBBOUS (illum > 0.5):
- *   Crescent: semicircle + far-side ellipse
- *   Gibbous:  semicircle + near-side ellipse (thin sliver only)
- * The terminator ellipse x-radius a = R * |1 - 2*illum|
+ * Path = same structure as _drawShadow but with the semicircle arc direction flipped,
+ * so the path traces the LIT region instead of the dark shadow region.
+ * Terminator ellipse x-radius a = R * |1 - 2*illum|
  */
-function _drawShadow(ctx, cx, cy, R, phase, darkColor) {
-  if (phase === 0.5) return; // full moon — no shadow
+function _drawLitRegion(ctx, cx, cy, R, phase, litColor) {
+  if (phase === 0 || phase === 1) return; // new moon — no lit region
 
   const isWaxing = phase < 0.5;
   const illum = isWaxing ? phase * 2 : (1 - phase) * 2; // 0=new, 1=full
 
-  // Near-new moon: fill entire circle
-  if (illum < 0.01) {
+  if (illum < 0.01) return; // essentially new moon
+
+  // Near-full moon: fill entire circle
+  if (illum > 0.99) {
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.fillStyle = darkColor;
+    ctx.fillStyle = litColor;
     ctx.fill();
     ctx.restore();
     return;
@@ -97,28 +101,28 @@ function _drawShadow(ctx, cx, cy, R, phase, darkColor) {
 
   ctx.beginPath();
   if (isWaxing) {
-    // Left semicircle (top → left → bottom, clockwise in screen/y-down)
-    ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, true);
+    // Lit side = RIGHT — use RIGHT semicircle (arc anticlockwise flipped vs shadow)
+    ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, false);
     if (!isGibbous) {
-      // Crescent: close with RIGHT side of terminator ellipse (CCW screen: bottom → right → top)
+      // Crescent: close via LEFT half of ellipse (same as shadow)
       ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, false);
     } else {
-      // Gibbous: close with LEFT side of terminator ellipse (CW screen: bottom → left → top)
+      // Gibbous: close via RIGHT half of ellipse (same as shadow)
       ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, true);
     }
   } else {
-    // Right semicircle (top → right → bottom, CCW in screen/y-down)
-    ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, false);
+    // Lit side = LEFT — use LEFT semicircle (arc anticlockwise flipped vs shadow)
+    ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, true);
     if (!isGibbous) {
-      // Crescent: close with LEFT side of terminator ellipse (CW screen: bottom → left → top)
+      // Crescent: close via RIGHT half of ellipse (same as shadow)
       ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, true);
     } else {
-      // Gibbous: close with RIGHT side of terminator ellipse (CCW screen: bottom → right → top)
+      // Gibbous: close via LEFT half of ellipse (same as shadow)
       ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, false);
     }
   }
   ctx.closePath();
-  ctx.fillStyle = darkColor;
+  ctx.fillStyle = litColor;
   ctx.fill();
   ctx.restore();
 }
@@ -154,15 +158,15 @@ export function drawMiniMoon(canvas, phase) {
 
   ctx.clearRect(0, 0, W, W);
 
-  // Lit base
+  // Dark base
   ctx.save();
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.fillStyle = '#d4cfa0';
+  ctx.fillStyle = '#0d0f1a';
   ctx.fill();
   ctx.restore();
 
-  _drawShadow(ctx, cx, cy, R, phase, '#111');
+  _drawLitRegion(ctx, cx, cy, R, phase, '#d4cfa0');
 }
 
 /**

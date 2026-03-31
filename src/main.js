@@ -149,12 +149,17 @@ async function requestAllPermissions() {
 // iOS (deviceorientation): e.webkitCompassHeading = clockwise azimuth from North
 // Both are already in standard compass bearing — NO inversion needed.
 
-// Low-pass filter for azimuth — handles compass glitches / wrap-around jumps
-const AZ_ALPHA = 0.35; // 0=frozen, 1=raw; 0.35 = smooth but responsive
+// Low-pass filters for orientation — handles sensor glitches and wrap-around jumps
+const AZ_ALPHA  = 0.12; // 0=frozen, 1=raw; lower = smoother compass
+const ALT_ALPHA = 0.15; // altitude changes more predictably, slightly less filtering
 
 function smoothAz(rawAz) {
   const dAz = ((rawAz - state.deviceAz + 540) % 360) - 180;
   return (state.deviceAz + dAz * AZ_ALPHA + 360) % 360;
+}
+
+function smoothAlt(rawAlt) {
+  return state.deviceAlt + (rawAlt - state.deviceAlt) * ALT_ALPHA;
 }
 
 // Chrome Android: absolute compass, fires continuously
@@ -163,7 +168,7 @@ window.addEventListener('deviceorientationabsolute', (e) => {
   hasAbsoluteSensor = true;
   hasSensor = true;
   state.deviceAz   = smoothAz(e.alpha ?? 0);
-  state.deviceAlt  = (e.beta ?? 90) - 90;   // portrait upright(β=90)→0°, tilt back(β↑)→positive
+  state.deviceAlt  = smoothAlt((e.beta ?? 90) - 90);
   state.deviceRoll = e.gamma  ?? 0;
 }, true);
 
@@ -191,7 +196,7 @@ window.addEventListener('deviceorientation', (e) => {
 
   hasSensor = true;
   state.deviceAz   = smoothAz(az);
-  state.deviceAlt  = e.beta - 90;   // portrait upright(β=90)→0°, tilt back(β↑)→positive
+  state.deviceAlt  = smoothAlt(e.beta - 90);
   state.deviceRoll = e.gamma ?? 0;
 }, true);
 
@@ -379,7 +384,7 @@ function _localUpdate(now = new Date()) {
   const satMap = Object.fromEntries(satPositions.map(s => [s.id, s]));
   state.stars = getStarsData().map(star =>
     star.type === 'satellite' && satMap[star.id]
-      ? { ...star, ...satMap[star.id] }
+      ? { ...star, ...satMap[star.id], altitude: undefined, azimuth: undefined }
       : star
   );
 }

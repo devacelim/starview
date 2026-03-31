@@ -156,6 +156,74 @@ function drawPlanetEdgeArrow(ctx, W, H, projX, projY, r, planet, cfg) {
 }
 
 /**
+ * Draw edge-arrow badge for the moon when off-screen or below horizon.
+ */
+function drawMoonEdgeArrow(ctx, W, H, projX, projY, moon) {
+  const cx = W / 2, cy = H / 2;
+  const angle = Math.atan2(projY - cy, projX - cx);
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+
+  const m = 40;
+  let t = Infinity;
+  if (cos > 1e-9)  t = Math.min(t, (W - m - cx) / cos);
+  if (cos < -1e-9) t = Math.min(t, (m - cx) / cos);
+  if (sin > 1e-9)  t = Math.min(t, (H - m - cy) / sin);
+  if (sin < -1e-9) t = Math.min(t, (m - cy) / sin);
+  if (!isFinite(t) || t <= 0) return;
+
+  const bx = cx + cos * t;
+  const by = cy + sin * t;
+  const br = 20;
+
+  ctx.save();
+
+  ctx.beginPath();
+  ctx.arc(bx, by, br, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,8,24,0.78)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,245,200,0.7)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Mini moon clipped inside badge
+  const mc = Object.assign(document.createElement('canvas'), { width: br * 2, height: br * 2 });
+  drawMiniMoon(mc, moon.phase);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(bx, by, br - 2, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.drawImage(mc, bx - br, by - br, br * 2, br * 2);
+  ctx.restore();
+
+  // Arrow
+  const ax = bx + cos * (br + 6);
+  const ay = by + sin * (br + 6);
+  ctx.save();
+  ctx.translate(ax, ay);
+  ctx.rotate(angle);
+  ctx.fillStyle = 'rgba(255,245,200,0.9)';
+  ctx.beginPath();
+  ctx.moveTo(5, 0);
+  ctx.lineTo(-4, -4);
+  ctx.lineTo(-4,  4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  ctx.font        = 'bold 9px -apple-system, sans-serif';
+  ctx.textAlign   = 'center';
+  ctx.textBaseline = 'top';
+  ctx.strokeStyle = 'rgba(0,0,20,0.9)';
+  ctx.lineWidth   = 2;
+  ctx.lineJoin    = 'round';
+  ctx.strokeText('달', bx, by + br + 3);
+  ctx.fillStyle   = 'rgba(255,245,200,0.9)';
+  ctx.fillText('달', bx, by + br + 3);
+
+  ctx.restore();
+}
+
+/**
  * Draw edge-arrow badge for a generic search target (star/moon/constellation).
  */
 function drawSearchTargetEdgeArrow(ctx, W, H, projX, projY, name, icon) {
@@ -447,7 +515,7 @@ export function renderSky(canvas, state) {
   // ── Constellation lines ──────────────────────────────────────────────────
   if (tog.constellations) {
     constsData.forEach((c) => {
-      c.lines.forEach(([idA, idB]) => {
+      (c.lines || []).forEach(([idA, idB]) => {
         const a = projected.find((s) => s.id === idA);
         const b = projected.find((s) => s.id === idB);
         if (!a || !b) return;
@@ -539,9 +607,13 @@ export function renderSky(canvas, state) {
   // ── Moon ─────────────────────────────────────────────────────────────────
   if (tog.moon && moon) {
     const pos = project(moon.altitude, moon.azimuth, deviceAz, deviceAlt, W, H, fov);
-    if (pos.visible && moon.altitude > -5) {
+    const moonBelow = moon.altitude < 0;
+    const moonAlpha = moonBelow ? 0.35 : 1.0;
+
+    if (pos.visible) {
       const R = 22;
       ctx.save();
+      ctx.globalAlpha = moonAlpha;
       const glow = ctx.createRadialGradient(pos.x, pos.y, R * 0.5, pos.x, pos.y, R * 2.5);
       glow.addColorStop(0,   'rgba(255,245,200,0.25)');
       glow.addColorStop(1,   'rgba(255,245,200,0)');
@@ -554,6 +626,7 @@ export function renderSky(canvas, state) {
       const mc = Object.assign(document.createElement('canvas'), { width: R * 2, height: R * 2 });
       drawMiniMoon(mc, moon.phase);
       ctx.save();
+      ctx.globalAlpha = moonAlpha;
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, R, 0, Math.PI * 2);
       ctx.clip();
@@ -561,11 +634,15 @@ export function renderSky(canvas, state) {
       ctx.restore();
 
       ctx.save();
+      ctx.globalAlpha = moonAlpha;
       ctx.font      = 'bold 12px -apple-system, sans-serif';
       ctx.fillStyle = 'rgba(255,245,200,0.9)';
       ctx.textAlign = 'center';
       ctx.fillText('달', pos.x, pos.y + R + 14);
       ctx.restore();
+    } else if (moon.altitude > -3) {
+      // Off-screen but near/above horizon → edge arrow badge
+      drawMoonEdgeArrow(ctx, W, H, pos.x, pos.y, moon);
     }
   }
 
@@ -685,14 +762,13 @@ export function hitTest(canvas, tapX, tapY, state) {
       const p = raDecToAltAz(star.ra, star.dec, date, lat, lon);
       altitude = p.altitude; azimuth = p.azimuth;
     }
-    if (altitude < -5) return;
     const pos = project(altitude, azimuth, deviceAz, deviceAlt, W, H, fov);
     const d   = Math.hypot(tapX - pos.x, tapY - pos.y);
     if (d < bestDist) { bestDist = d; best = { type: 'star', data: star }; }
   });
 
   // Moon
-  if (moon && moon.altitude > -5) {
+  if (moon) {
     const pos = project(moon.altitude, moon.azimuth, deviceAz, deviceAlt, W, H, fov);
     const d   = Math.hypot(tapX - pos.x, tapY - pos.y);
     if (d < 36) { bestDist = d; best = { type: 'moon', data: moon }; }
@@ -701,7 +777,6 @@ export function hitTest(canvas, tapX, tapY, state) {
   // Planets
   if (planets) {
     planets.forEach((p) => {
-      if (p.altitude < -5) return;
       const pos = project(p.altitude, p.azimuth, deviceAz, deviceAlt, W, H, fov);
       const d   = Math.hypot(tapX - pos.x, tapY - pos.y);
       if (d < bestDist) { bestDist = d; best = { type: 'planet', data: p }; }
