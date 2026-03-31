@@ -286,21 +286,50 @@
 
     /* ── Planets Screen ── */
     #planets-screen { background: #000; }
-    .planet-list { padding: 0 16px; display: flex; flex-direction: column; gap: 10px; }
+
+    .planet-date-nav {
+      display: flex; align-items: center; justify-content: center; gap: 18px;
+      padding: 10px 16px 6px;
+    }
+    .planet-date-nav button {
+      background: rgba(126,184,247,0.12); border: 1px solid rgba(126,184,247,0.25);
+      border-radius: 10px; color: var(--accent); font-size: 18px; line-height: 1;
+      width: 34px; height: 34px; cursor: pointer;
+    }
+    #planet-date-label { font-size: 16px; font-weight: 600; color: #e8eaf6; }
+    #planet-summary { text-align: center; font-size: 12px; color: var(--text-dim); padding-bottom: 6px; }
+
+    #planet-sky-canvas { display: block; width: 100%; height: 110px; }
+
+    .planet-time-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 4px 16px 8px;
+    }
+    #planet-time-label { font-size: 12px; color: var(--accent); min-width: 38px; }
+    #planet-time-slider {
+      flex: 1; -webkit-appearance: none; appearance: none;
+      height: 3px; border-radius: 2px; background: rgba(126,184,247,0.25); outline: none;
+    }
+    #planet-time-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px;
+      border-radius: 50%; background: var(--accent); cursor: pointer;
+    }
+
+    .planet-list { padding: 0 16px 80px; display: flex; flex-direction: column; gap: 10px; }
     .planet-card {
       background: var(--surface);
       border: 1px solid rgba(126,184,247,0.12);
-      border-radius: 16px;
-      padding: 16px;
-      display: flex; align-items: center; gap: 14px;
+      border-radius: 16px; padding: 12px 14px;
+      display: flex; align-items: center; gap: 12px;
     }
     .planet-card.visible { border-color: rgba(126,184,247,0.35); }
-    .planet-icon { font-size: 32px; }
-    .planet-info { flex: 1; }
-    .planet-name { font-size: 17px; font-weight: 600; }
+    .planet-disc-canvas { flex-shrink: 0; border-radius: 50%; }
+    .planet-info { flex: 1; min-width: 0; }
+    .planet-name { font-size: 16px; font-weight: 600; }
     .planet-stats { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+    .planet-times { font-size: 11px; color: rgba(126,184,247,0.6); margin-top: 3px; }
     .planet-badge {
-      padding: 4px 10px; border-radius: 20px;
+      flex-shrink: 0; padding: 4px 10px; border-radius: 20px;
       font-size: 11px; font-weight: 600;
       background: rgba(126,184,247,0.15); color: var(--accent);
     }
@@ -344,6 +373,96 @@
       font-size: 12px; font-weight: 600;
     }
 
+    /* ── Search ── */
+    #search-btn {
+      position: absolute;
+      bottom: calc(var(--tab-h) + var(--safe-bottom) + 14px);
+      left: 16px;
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      border: 1px solid rgba(90,150,255,0.3);
+      background: rgba(6,10,26,0.72);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      font-size: 18px;
+      cursor: pointer;
+      z-index: 91;
+      display: flex; align-items: center; justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+      transition: background 0.2s;
+    }
+    #search-btn:active { background: rgba(20,40,100,0.85); }
+
+    #search-overlay {
+      position: absolute; inset: 0;
+      z-index: 98;
+      display: none;
+      flex-direction: column;
+      pointer-events: none;
+    }
+    #search-overlay.open { display: flex; pointer-events: auto; }
+
+    #search-panel {
+      background: rgba(4,6,18,0.97);
+      border-bottom: 1px solid rgba(60,110,220,0.2);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      padding: calc(env(safe-area-inset-top,0px) + 12px) 14px 12px;
+      box-shadow: 0 4px 30px rgba(0,0,0,0.6);
+    }
+
+    #search-bar-wrap {
+      display: flex; align-items: center; gap: 10px;
+      background: rgba(14,20,55,0.8);
+      border: 1px solid rgba(80,140,255,0.28);
+      border-radius: 14px;
+      padding: 10px 14px;
+    }
+    #search-bar-wrap svg { flex-shrink: 0; opacity: 0.5; }
+
+    #search-input {
+      flex: 1;
+      background: none; border: none; outline: none;
+      color: rgba(215,232,255,0.95);
+      font-size: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    #search-input::placeholder { color: rgba(90,130,210,0.55); }
+
+    #search-close {
+      background: none; border: none;
+      color: rgba(120,165,255,0.65);
+      font-size: 20px; line-height: 1;
+      cursor: pointer; padding: 0 2px;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #search-results {
+      overflow-y: auto;
+      max-height: 55vh;
+      background: rgba(4,6,18,0.97);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+    }
+
+    .search-result-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 13px 18px;
+      border-bottom: 1px solid rgba(40,60,130,0.18);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.1s;
+    }
+    .search-result-item:active { background: rgba(30,60,160,0.25); }
+
+    .sri-icon { font-size: 18px; width: 26px; text-align: center; flex-shrink: 0; }
+    .sri-main { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .sri-name { font-size: 15px; font-weight: 500; color: rgba(215,232,255,0.95); }
+    .sri-sub  { font-size: 12px; color: rgba(100,150,230,0.6); }
+    .sri-alt  { font-size: 11px; color: rgba(120,180,255,0.55); text-align: right; flex-shrink: 0; max-width: 90px; }
+    .sri-alt.below { color: rgba(255,140,100,0.55); }
+
     /* ── Star Tooltip ── */
     #sky-tooltip {
       position: fixed;
@@ -370,7 +489,7 @@
     <h2>StarView</h2>
     <p>별자리 AR 뷰를 사용하려면<br>카메라, 위치, 자이로스코프 권한이 필요합니다.</p>
     <button id="perm-btn">시작하기</button>
-    <div style="font-size:12px;color:rgba(126,184,247,0.45);margin-top:6px;">StarView v1.5</div>
+    <div style="font-size:12px;color:rgba(126,184,247,0.45);margin-top:6px;">StarView v1.7</div>
   </div>
 
   <!-- AR View (tab 0) -->
@@ -378,6 +497,28 @@
     <video id="camera-video" autoplay playsinline muted></video>
     <canvas id="sky-canvas"></canvas>
     <div id="ar-toggles"></div>
+
+    <!-- Search button -->
+    <button id="search-btn" title="검색">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(150,200,255,0.85)" stroke-width="2" stroke-linecap="round">
+        <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+    </button>
+
+    <!-- Search overlay -->
+    <div id="search-overlay">
+      <div id="search-panel">
+        <div id="search-bar-wrap">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(150,200,255,0.7)" stroke-width="2" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input id="search-input" type="search" inputmode="search" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="별, 별자리, 행성 검색…" />
+          <button id="search-close">✕</button>
+        </div>
+      </div>
+      <div id="search-results"></div>
+    </div>
+
     <!-- AR / Virtual mode toggle -->
     <button id="mode-btn" title="AR 카메라 모드로 전환">
       <span id="mode-icon">📷</span>
@@ -422,6 +563,17 @@
   <!-- Planets Screen (tab 2) -->
   <div id="planets-screen" class="screen">
     <div class="screen-header">행성 위치</div>
+    <div class="planet-date-nav">
+      <button id="planet-prev-day">‹</button>
+      <span id="planet-date-label">--</span>
+      <button id="planet-next-day">›</button>
+    </div>
+    <div id="planet-summary">--</div>
+    <canvas id="planet-sky-canvas"></canvas>
+    <div class="planet-time-row">
+      <span id="planet-time-label">--:--</span>
+      <input type="range" id="planet-time-slider" min="0" max="1439" value="720">
+    </div>
     <div class="planet-list" id="planet-list"></div>
   </div>
 

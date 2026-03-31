@@ -5,8 +5,161 @@
 import { raDecToAltAz, getMoonPosition, getMoonPhase } from './astronomy.js';
 import { drawMiniMoon } from './moon.js';
 
+/** Per-planet visual config: base radius, body colours, glow, bands, rings */
+const PLANET_VIS = {
+  Mercury: { baseR: 5,  c1: '#c8c8c8', c2: '#606060', glow: 'rgba(200,200,200,0.3)',  bands: false, rings: false },
+  Venus:   { baseR: 8,  c1: '#fffae0', c2: '#d8c030', glow: 'rgba(255,245,80,0.35)',  bands: false, rings: false },
+  Mars:    { baseR: 7,  c1: '#e85030', c2: '#901808', glow: 'rgba(232,80,48,0.35)',   bands: false, rings: false },
+  Jupiter: { baseR: 14, c1: '#e4b870', c2: '#a87030', glow: 'rgba(228,184,112,0.3)', bands: true,  rings: false },
+  Saturn:  { baseR: 12, c1: '#f0e090', c2: '#c09840', glow: 'rgba(240,224,144,0.3)', bands: false, rings: true  },
+  Uranus:  { baseR: 9,  c1: '#90e8f8', c2: '#40a0b8', glow: 'rgba(144,232,248,0.3)', bands: false, rings: false },
+  Neptune: { baseR: 8,  c1: '#4878f0', c2: '#1830a0', glow: 'rgba(72,120,240,0.3)',  bands: false, rings: false },
+};
+
+/** Darken a hex colour by ~60 units per channel (for gradient edge). */
+function darken(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, (n >> 16) - 60);
+  const g = Math.max(0, ((n >> 8) & 0xff) - 60);
+  const b = Math.max(0, (n & 0xff) - 60);
+  return `rgb(${r},${g},${b})`;
+}
+
+/**
+ * Draw a canvas-rendered planet disc with rings/bands/specular highlight.
+ * Exported so planets.js can reuse it for list cards.
+ */
+export function drawPlanetDisc(ctx, cx, cy, r, nameEn) {
+  const cfg = PLANET_VIS[nameEn] || PLANET_VIS.Mercury;
+  ctx.save();
+
+  // Saturn — back (top) half of rings, drawn before body so body overlaps
+  if (cfg.rings) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + r * 0.1, r * 2.2, r * 0.45, 0, Math.PI, 0, true);
+    ctx.strokeStyle = 'rgba(180,148,80,0.6)';
+    ctx.lineWidth   = r * 0.38;
+    ctx.stroke();
+  }
+
+  // Planet body with radial gradient
+  const grad = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.05, cx, cy, r);
+  grad.addColorStop(0,   cfg.c1);
+  grad.addColorStop(0.6, cfg.c2);
+  grad.addColorStop(1,   darken(cfg.c2));
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Jupiter — horizontal bands clipped to body
+  if (cfg.bands) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+    [cy - r * 0.55, cy - r * 0.15, cy + r * 0.2, cy + r * 0.55].forEach((by, i) => {
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(160,90,30,0.42)' : 'rgba(255,210,130,0.28)';
+      ctx.fillRect(cx - r, by, r * 2, r * 0.28);
+    });
+    ctx.restore();
+  }
+
+  // Saturn — front (bottom) half of rings, drawn after body so rings overlap at bottom
+  if (cfg.rings) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + r * 0.1, r * 2.2, r * 0.45, 0, 0, Math.PI);
+    ctx.strokeStyle = 'rgba(210,178,100,0.88)';
+    ctx.lineWidth   = r * 0.36;
+    ctx.stroke();
+  }
+
+  // Specular highlight
+  const spec = ctx.createRadialGradient(cx - r * 0.32, cy - r * 0.32, 0, cx - r * 0.32, cy - r * 0.32, r * 0.55);
+  spec.addColorStop(0, 'rgba(255,255,255,0.45)');
+  spec.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = spec;
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/**
+ * Draw an edge-arrow badge for an off-screen (but above-horizon) planet.
+ */
+function drawPlanetEdgeArrow(ctx, W, H, projX, projY, r, planet, cfg) {
+  const cx = W / 2, cy = H / 2;
+  const angle = Math.atan2(projY - cy, projX - cx);
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+
+  // Find where ray from centre hits screen edge band (margin = 40px inset)
+  const m = 40;
+  let t = Infinity;
+  if (cos > 1e-9) t = Math.min(t, (W - m - cx) / cos);
+  if (cos < -1e-9) t = Math.min(t, (m - cx) / cos);
+  if (sin > 1e-9) t = Math.min(t, (H - m - cy) / sin);
+  if (sin < -1e-9) t = Math.min(t, (m - cy) / sin);
+  if (!isFinite(t) || t <= 0) return;
+
+  const bx = cx + cos * t;
+  const by = cy + sin * t;
+  const br = 20; // badge radius
+
+  ctx.save();
+
+  // Badge background
+  ctx.beginPath();
+  ctx.arc(bx, by, br, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,8,24,0.78)';
+  ctx.fill();
+  ctx.strokeStyle = cfg.c1;
+  ctx.lineWidth   = 1.2;
+  ctx.stroke();
+
+  // Mini planet disc clipped inside badge
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(bx, by, br - 2, 0, Math.PI * 2);
+  ctx.clip();
+  drawPlanetDisc(ctx, bx, by, Math.max(4, Math.min(9, r * 0.72)), planet.nameEn);
+  ctx.restore();
+
+  // Arrow triangle pointing toward planet
+  const ax = bx + cos * (br + 6);
+  const ay = by + sin * (br + 6);
+  ctx.save();
+  ctx.translate(ax, ay);
+  ctx.rotate(angle);
+  ctx.fillStyle = cfg.c1;
+  ctx.beginPath();
+  ctx.moveTo(5, 0);
+  ctx.lineTo(-4, -4);
+  ctx.lineTo(-4,  4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // Planet name below badge
+  ctx.font        = 'bold 9px -apple-system, sans-serif';
+  ctx.textAlign   = 'center';
+  ctx.textBaseline = 'top';
+  ctx.strokeStyle = 'rgba(0,0,20,0.9)';
+  ctx.lineWidth   = 2;
+  ctx.lineJoin    = 'round';
+  ctx.strokeText(planet.name, bx, by + br + 3);
+  ctx.fillStyle   = cfg.c1;
+  ctx.fillText(planet.name, bx, by + br + 3);
+
+  ctx.restore();
+}
+
 let starsData  = [];
 let constsData = [];
+
+export function getStarsData()  { return starsData;  }
+export function getConstsData() { return constsData; }
 
 export async function loadSkyData() {
   const [starsRes, constsRes] = await Promise.all([
@@ -23,11 +176,12 @@ export async function loadSkyData() {
 function project(altDeg, azDeg, deviceAz, deviceAlt, W, H, fovH) {
   const dAz  = ((azDeg  - deviceAz  + 540) % 360) - 180;
   const dAlt = altDeg - deviceAlt;
-  const scale = W / fovH;
+  // 세로모드: H 기준 스케일 → 수직시야각=fovH, 30° 기울이면 지평선이 화면 아래로
+  // 가로모드: W 기준 스케일 → 자동 대응
+  const scale = Math.max(W, H) / fovH;
   const x = W / 2 + dAz  * scale;
   const y = H / 2 - dAlt * scale;
-  const fovV   = fovH * (H / W);
-  const margin = Math.max(fovH, fovV) * scale * 0.15;
+  const margin = Math.max(W, H) * 0.12;
   const visible = x > -margin && x < W + margin && y > -margin && y < H + margin;
   return { x, y, visible };
 }
@@ -36,7 +190,7 @@ function project(altDeg, azDeg, deviceAz, deviceAlt, W, H, fovH) {
  * Draw virtual sky background: gradient + horizon line + cardinal labels + crosshair.
  */
 function drawVirtualSky(ctx, W, H, deviceAz, deviceAlt, fov) {
-  const scale  = W / fov;
+  const scale  = Math.max(W, H) / fov;   // project() 와 동일 기준
   const horizY = Math.round(H / 2 + deviceAlt * scale);
 
   // === Sky above horizon ===
@@ -351,29 +505,66 @@ export function renderSky(canvas, state) {
 
   // ── Planets ──────────────────────────────────────────────────────────────
   if (tog.planets && planets) {
+    const scx = W / 2, scy = H / 2;
+    const now = Date.now();
+
     planets.forEach((p) => {
       const pos = project(p.altitude, p.azimuth, deviceAz, deviceAlt, W, H, fov);
-      if (!pos.visible || p.altitude < -5) return;
+      const cfg = PLANET_VIS[p.nameEn] || PLANET_VIS.Mercury;
+      const r   = cfg.baseR * Math.max(0.7, 60 / fov);
 
-      ctx.save();
-      const glow = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, 16);
-      glow.addColorStop(0, 'rgba(247,201,126,0.6)');
-      glow.addColorStop(1, 'rgba(247,201,126,0)');
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 16, 0, Math.PI * 2);
-      ctx.fillStyle = glow;
-      ctx.fill();
+      if (pos.visible && p.altitude > -5) {
+        const dist = Math.hypot(pos.x - scx, pos.y - scy);
+        const threshold = W * 0.12;
 
-      ctx.font         = '18px sans-serif';
-      ctx.textAlign    = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(p.icon, pos.x, pos.y);
+        // Outer ambient glow
+        ctx.save();
+        const glowGrad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, r * 3.5);
+        glowGrad.addColorStop(0, cfg.glow);
+        glowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, r * 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = glowGrad;
+        ctx.fill();
+        ctx.restore();
 
-      ctx.font         = '11px -apple-system, sans-serif';
-      ctx.fillStyle    = 'rgba(247,201,126,0.95)';
-      ctx.textBaseline = 'alphabetic';
-      ctx.fillText(p.name, pos.x, pos.y + 20);
-      ctx.restore();
+        // Pulse rings when planet is near screen centre
+        if (dist < threshold) {
+          const pulse = (Math.sin(now / 300) + 1) / 2;
+          for (let ring = 0; ring < 3; ring++) {
+            const ringR = r * (2.2 + ring * 1.2 + pulse * 0.8);
+            const alpha = (0.55 - ring * 0.15) * (1 - dist / threshold);
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.strokeStyle = cfg.c1;
+            ctx.lineWidth   = 1.5 - ring * 0.4;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, ringR, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+
+        // Canvas-drawn planet disc
+        drawPlanetDisc(ctx, pos.x, pos.y, r, p.nameEn);
+
+        // Name label
+        ctx.save();
+        ctx.font         = '11px -apple-system, sans-serif';
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'top';
+        ctx.strokeStyle  = 'rgba(0,0,20,0.8)';
+        ctx.lineWidth    = 2.5;
+        ctx.lineJoin     = 'round';
+        ctx.strokeText(p.name, pos.x, pos.y + r + 4);
+        ctx.fillStyle = 'rgba(247,201,126,0.95)';
+        ctx.fillText(p.name, pos.x, pos.y + r + 4);
+        ctx.restore();
+
+      } else if (p.altitude > -3) {
+        // Off-screen but above/near horizon — draw edge arrow badge
+        drawPlanetEdgeArrow(ctx, W, H, pos.x, pos.y, r, p, cfg);
+      }
     });
   }
 }

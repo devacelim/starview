@@ -2,9 +2,9 @@
  * main.js — StarView app entry point
  */
 
-const APP_VERSION = 'v1.5';
+const APP_VERSION = 'v1.7';
 
-import { loadSkyData, renderSky, hitTest } from './skymap.js';
+import { loadSkyData, renderSky, hitTest, getStarsData, getConstsData } from './skymap.js';
 import { updateMoonScreen } from './moon.js';
 import { updatePlanetsScreen } from './planets.js';
 import { updateWeatherScreen } from './observation.js';
@@ -15,7 +15,7 @@ import { renderEventsScreen } from './events.js';
 // ── State ─────────────────────────────────────────────────────────────────────
 const state = {
   lat: null, lon: null,
-  deviceAz: 0, deviceAlt: 30, deviceRoll: 0,
+  deviceAz: 0, deviceAlt: 10, deviceRoll: 0,  // 지평선이 화면 아래쪽에 오도록
   planets: [],
   moon: null,
   stars: null,
@@ -157,21 +157,32 @@ window.addEventListener('deviceorientationabsolute', (e) => {
   state.deviceRoll = e.gamma  ?? 0;
 }, true);
 
-// iOS Safari/Edge: webkitCompassHeading, fires continuously
-// hasAbsoluteSensor 가 true 면 Android absolute 이벤트 우선 → 이 핸들러 건너뜀
+// iOS Safari / Edge iOS: 방향 이벤트 처리
+// Safari → webkitCompassHeading 제공 (절대 방위)
+// Edge iOS → webkitCompassHeading 없을 수 있음, e.absolute=true 또는 상대 alpha 사용
 window.addEventListener('deviceorientation', (e) => {
   if (!state.permGranted) return;
-  if (hasAbsoluteSensor) return; // absolute 이벤트가 더 정확, 중복 처리 방지
+  if (hasAbsoluteSensor) return; // deviceorientationabsolute 가 더 정확
 
-  const hasCompass = typeof e.webkitCompassHeading === 'number';
-  const az = hasCompass ? e.webkitCompassHeading : (e.alpha ?? 0);
-  if (!hasCompass && e.beta == null) return;                          // 실제 센서 없음
-  if (!hasCompass && az === 0 && (e.beta === 0 || e.beta == null)) return; // 데스크탑 zero 이벤트
+  // 방위 소스 결정 (우선순위: webkitCompassHeading > absolute alpha > relative alpha)
+  const wk         = e.webkitCompassHeading;
+  const hasCompass  = typeof wk === 'number' && isFinite(wk);
+  const hasAbsAlpha = e.absolute === true && typeof e.alpha === 'number' && isFinite(e.alpha);
 
-  hasSensor = true; // 드래그 비활성 (센서로 제어)
+  // 완전히 센서 데이터가 없는 경우 (데스크탑 브라우저의 빈 이벤트)
+  if (e.alpha == null && e.beta == null && e.gamma == null) return;
+  // 데스크탑 all-zero 이벤트 (컴패스도 없고 absolute도 아닐 때만 필터)
+  if (!hasCompass && !hasAbsAlpha && e.alpha === 0 && e.beta === 0 && e.gamma === 0) return;
+  if (e.beta == null) return; // 고도 계산 불가
+
+  const az = hasCompass  ? wk
+           : hasAbsAlpha ? e.alpha
+           :               (e.alpha ?? 0);
+
+  hasSensor = true;
   state.deviceAz   = az;
-  state.deviceAlt  = 90 - (e.beta  ?? 90);   // portrait upright(β=90)→0°, tilt back→positive
-  state.deviceRoll = e.gamma  ?? 0;
+  state.deviceAlt  = 90 - e.beta;   // portrait upright(β=90)→0°, tilt back→positive
+  state.deviceRoll = e.gamma ?? 0;
 }, true);
 
 // ── Desktop mouse drag (when no physical sensor) ──────────────────────────────
@@ -439,7 +450,159 @@ async function init() {
   await loadSkyData();
   watchPosition();
   buildToggles();
+  initSearch();
   await updateSkyObjects();
   setInterval(updateSkyObjects, 30000);
   renderLoop();
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+function initSearch() {
+  const searchBtn     = document.getElementById('search-btn');
+  const searchOverlay = document.getElementById('search-overlay');
+  const searchInput   = document.getElementById('search-input');
+  const searchClose   = document.getElementById('search-close');
+  const searchResults = document.getElementById('search-results');
+
+  searchBtn.addEventListener('click', () => {
+    searchOverlay.classList.add('open');
+    searchInput.value = '';
+    searchResults.innerHTML = '';
+    setTimeout(() => searchInput.focus(), 50);
+  });
+
+  function closeSearch() {
+    searchOverlay.classList.remove('open');
+    searchInput.blur();
+  }
+
+  searchClose.addEventListener('click', closeSearch);
+  searchOverlay.addEventListener('click', (e) => {
+    if (e.target === searchOverlay) closeSearch();
+  });
+
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.trim();
+    renderSearchResults(q, searchResults, closeSearch);
+  });
+}
+
+function searchObjects(query) {
+  if (!query) return [];
+  const q = query.toLowerCase();
+  const results = [];
+
+  // 달
+  if ('달moon'.includes(q) || q.includes('달') || q.includes('moon')) {
+    results.push({ type: 'moon', name: '달', icon: '☽', sub: '위성' });
+  }
+
+  // 행성
+  (state.planets || []).forEach((p) => {
+    if ((p.name || '').toLowerCase().includes(q)) {
+      results.push({ type: 'planet', name: p.name, icon: p.icon, sub: '행성', data: p });
+    }
+  });
+
+  // 별 (밝은 별 위주, nameKo 또는 name 검색)
+  const stars = state.stars || getStarsData();
+  stars.forEach((s) => {
+    const kn = (s.nameKo || '').toLowerCase();
+    const en = (s.name   || '').toLowerCase();
+    if (!kn && !en) return;
+    if (s.mag > 4.0) return; // 너무 어두운 별 제외
+    if (kn.includes(q) || en.includes(q)) {
+      results.push({
+        type: 'star', name: s.nameKo || s.name, icon: '★',
+        sub: `${s.constellation || ''} · ${s.mag >= 0 ? '+' : ''}${s.mag}등급`,
+        ra: s.ra, dec: s.dec,
+      });
+    }
+  });
+
+  // 별자리
+  getConstsData().forEach((c) => {
+    const kn = (c.nameKo || '').toLowerCase();
+    const en = (c.name   || '').toLowerCase();
+    if (kn.includes(q) || en.includes(q)) {
+      results.push({ type: 'constellation', name: c.nameKo || c.name, icon: '⊹', sub: '별자리', id: c.id });
+    }
+  });
+
+  return results.slice(0, 18);
+}
+
+function getObjectAltAz(item) {
+  if (!state.lat) return null;
+  if (item.type === 'moon'   && state.moon)
+    return { az: state.moon.azimuth, alt: state.moon.altitude };
+  if (item.type === 'planet' && item.data)
+    return { az: item.data.azimuth, alt: item.data.altitude };
+  if (item.type === 'star')
+    return raDecToAltAz(item.ra, item.dec, state.date, state.lat, state.lon);
+  if (item.type === 'constellation') {
+    const members = (state.stars || getStarsData())
+      .filter((s) => s.constellation?.toUpperCase() === item.id.toUpperCase() && s.mag < 5);
+    if (!members.length) return null;
+    const ra  = members.reduce((s, m) => s + m.ra,  0) / members.length;
+    const dec = members.reduce((s, m) => s + m.dec, 0) / members.length;
+    return raDecToAltAz(ra, dec, state.date, state.lat, state.lon);
+  }
+  return null;
+}
+
+function flyTo(targetAz, targetAlt) {
+  const startAz  = state.deviceAz;
+  const startAlt = state.deviceAlt;
+  const dAz      = ((targetAz - startAz + 540) % 360) - 180; // shortest arc
+  const duration = 900;
+  const t0       = performance.now();
+
+  function step(now) {
+    const t    = Math.min(1, (now - t0) / duration);
+    const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // ease-in-out
+    state.deviceAz  = ((startAz + dAz * ease) + 360) % 360;
+    state.deviceAlt = Math.max(-85, Math.min(85, startAlt + (targetAlt - startAlt) * ease));
+    if (t < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+function renderSearchResults(query, container, onClose) {
+  container.innerHTML = '';
+  if (!query) return;
+
+  const items = searchObjects(query);
+  if (!items.length) {
+    container.innerHTML = `<div style="padding:20px;text-align:center;color:rgba(100,150,230,0.5);font-size:14px">검색 결과 없음</div>`;
+    return;
+  }
+
+  items.forEach((item) => {
+    const pos = getObjectAltAz(item);
+    const altText = pos
+      ? (pos.alt >= 0
+          ? `고도 ${pos.alt.toFixed(0)}° · 방위 ${pos.az.toFixed(0)}°`
+          : `지평선 아래 ${Math.abs(pos.alt).toFixed(0)}°`)
+      : '';
+    const belowHorizon = pos && pos.alt < 0;
+
+    const el = document.createElement('div');
+    el.className = 'search-result-item';
+    el.innerHTML = `
+      <span class="sri-icon">${item.icon}</span>
+      <span class="sri-main">
+        <span class="sri-name">${item.name}</span>
+        <span class="sri-sub">${item.sub || ''}</span>
+      </span>
+      <span class="sri-alt${belowHorizon ? ' below' : ''}">${altText}</span>
+    `;
+    el.addEventListener('click', () => {
+      if (!pos) { onClose(); return; }
+      onClose();
+      // 지평선 아래 오브젝트도 flyTo (지도에서 위치 확인 가능)
+      flyTo(pos.az, pos.alt);
+    });
+    container.appendChild(el);
+  });
 }

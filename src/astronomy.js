@@ -212,5 +212,31 @@ export function getMoonRiseSet(date, lat, lon) {
   return { rise: fmt(riseTime), set: fmt(setTime) };
 }
 
+/**
+ * Planet rise/set approximation by sampling altitude every 10 min
+ */
+export function getPlanetRiseSet(nameEn, date, lat, lon) {
+  const base = new Date(date);
+  base.setHours(0, 0, 0, 0);
+  let prevAlt = null, riseTime = null, setTime = null;
+
+  for (let m = 0; m <= 24 * 60; m += 10) {
+    const t = new Date(base.getTime() + m * 60000);
+    const planets = getPlanetPositions(t, lat, lon);
+    const p = planets.find((x) => x.nameEn === nameEn);
+    if (!p) continue;
+    if (prevAlt !== null) {
+      if (prevAlt < 0 && p.altitude >= 0 && !riseTime) riseTime = t;
+      if (prevAlt >= 0 && p.altitude < 0 && !setTime)  setTime  = t;
+    }
+    prevAlt = p.altitude;
+  }
+
+  const fmt = (d) => d
+    ? `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+    : '--:--';
+  return { rise: fmt(riseTime), set: fmt(setTime) };
+}
+
 function toRad(d) { return d * Math.PI / 180; }
 function toDeg(r) { return r * 180 / Math.PI; }
