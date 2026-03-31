@@ -150,16 +150,23 @@ async function requestAllPermissions() {
 // Both are already in standard compass bearing — NO inversion needed.
 
 // Low-pass filters for orientation — handles sensor glitches and wrap-around jumps
-const AZ_ALPHA  = 0.12; // 0=frozen, 1=raw; lower = smoother compass
-const ALT_ALPHA = 0.15; // altitude changes more predictably, slightly less filtering
+const AZ_ALPHA  = 0.12; // 0=frozen, 1=raw
+const ALT_ALPHA = 0.15;
+// Glitch threshold: >40° change in one sensor event is physically impossible (human max ~300°/s)
+// Ignore such readings as sensor glitches (common on Chrome Android deviceorientationabsolute)
+const AZ_GLITCH  = 40; // degrees
+const ALT_GLITCH = 35; // degrees
 
 function smoothAz(rawAz) {
   const dAz = ((rawAz - state.deviceAz + 540) % 360) - 180;
+  if (Math.abs(dAz) > AZ_GLITCH) return state.deviceAz; // discard glitch
   return (state.deviceAz + dAz * AZ_ALPHA + 360) % 360;
 }
 
 function smoothAlt(rawAlt) {
-  return state.deviceAlt + (rawAlt - state.deviceAlt) * ALT_ALPHA;
+  const dAlt = rawAlt - state.deviceAlt;
+  if (Math.abs(dAlt) > ALT_GLITCH) return state.deviceAlt; // discard glitch
+  return state.deviceAlt + dAlt * ALT_ALPHA;
 }
 
 // Chrome Android: absolute compass, fires continuously

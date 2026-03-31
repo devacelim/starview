@@ -101,24 +101,24 @@ function _drawLitRegion(ctx, cx, cy, R, phase, litColor) {
 
   ctx.beginPath();
   if (isWaxing) {
-    // Lit side = RIGHT — use RIGHT semicircle (arc anticlockwise flipped vs shadow)
-    ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, false);
+    // Lit side = RIGHT → right outer arc + inner terminator
+    ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, false); // right semi: top→right→bottom
     if (!isGibbous) {
-      // Crescent: close via LEFT half of ellipse (same as shadow)
-      ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, false);
-    } else {
-      // Gibbous: close via RIGHT half of ellipse (same as shadow)
+      // Crescent: thin right sliver — close via RIGHT half of terminator (bottom→right→top)
       ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, true);
+    } else {
+      // Gibbous: large right region — close via LEFT half of terminator (bottom→left→top)
+      ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, false);
     }
   } else {
-    // Lit side = LEFT — use LEFT semicircle (arc anticlockwise flipped vs shadow)
-    ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, true);
+    // Lit side = LEFT → left outer arc + inner terminator
+    ctx.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, true); // left semi: top→left→bottom
     if (!isGibbous) {
-      // Crescent: close via RIGHT half of ellipse (same as shadow)
-      ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, true);
-    } else {
-      // Gibbous: close via LEFT half of ellipse (same as shadow)
+      // Crescent: thin left sliver — close via LEFT half of terminator (bottom→left→top)
       ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, false);
+    } else {
+      // Gibbous: large left region — close via RIGHT half of terminator (bottom→right→top)
+      ctx.ellipse(cx, cy, a, R, 0, Math.PI / 2, -Math.PI / 2, true);
     }
   }
   ctx.closePath();
