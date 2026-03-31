@@ -2,7 +2,7 @@
  * main.js — StarView app entry point
  */
 
-const APP_VERSION = 'v1.8';
+const APP_VERSION = 'v1.9';
 
 import { loadSkyData, renderSky, hitTest, getStarsData, getConstsData } from './skymap.js';
 import { updateMoonScreen } from './moon.js';
@@ -320,7 +320,10 @@ function hideTooltip() {
 // ── Geolocation watch ─────────────────────────────────────────────────────────
 function watchPosition() {
   navigator.geolocation.watchPosition(
-    (pos) => { state.lat = pos.coords.latitude; state.lon = pos.coords.longitude; },
+    (pos) => {
+      const lat = pos.coords.latitude, lon = pos.coords.longitude;
+      if (isFinite(lat) && isFinite(lon)) { state.lat = lat; state.lon = lon; }
+    },
     () => {},
     { enableHighAccuracy: true }
   );
@@ -370,7 +373,7 @@ function renderLoop() {
     renderSky(canvas, state);
     hudDir.textContent  = `${azToCompass(state.deviceAz)} ${Math.round(state.deviceAz)}°`;
     hudTime.textContent = `${nowTimeStr()} ${APP_VERSION}`;
-    if (state.lat != null) {
+    if (state.lat != null && isFinite(state.lat) && isFinite(state.lon)) {
       const latStr = `${Math.abs(state.lat).toFixed(2)}°${state.lat >= 0 ? 'N' : 'S'}`;
       const lonStr = `${Math.abs(state.lon).toFixed(2)}°${state.lon >= 0 ? 'E' : 'W'}`;
       const altSign = state.deviceAlt >= 0 ? '↑' : '↓';
@@ -533,7 +536,7 @@ function searchObjects(query) {
 }
 
 function getObjectAltAz(item) {
-  if (!state.lat) return null;
+  if (!state.lat || !isFinite(state.lat) || !isFinite(state.lon)) return null;
   if (item.type === 'moon'   && state.moon)
     return { az: state.moon.azimuth, alt: state.moon.altitude };
   if (item.type === 'planet' && item.data)
@@ -580,12 +583,13 @@ function renderSearchResults(query, container, onClose) {
 
   items.forEach((item) => {
     const pos = getObjectAltAz(item);
-    const altText = pos
+    const validPos = pos && isFinite(pos.alt) && isFinite(pos.az);
+    const altText = validPos
       ? (pos.alt >= 0
           ? `고도 ${pos.alt.toFixed(0)}° · 방위 ${pos.az.toFixed(0)}°`
           : `지평선 아래 ${Math.abs(pos.alt).toFixed(0)}°`)
       : '';
-    const belowHorizon = pos && pos.alt < 0;
+    const belowHorizon = validPos && pos.alt < 0;
 
     const el = document.createElement('div');
     el.className = 'search-result-item';
@@ -598,7 +602,7 @@ function renderSearchResults(query, container, onClose) {
       <span class="sri-alt${belowHorizon ? ' below' : ''}">${altText}</span>
     `;
     el.addEventListener('click', () => {
-      if (!pos) { onClose(); return; }
+      if (!validPos) { onClose(); return; }
       onClose();
       // 지평선 아래 오브젝트도 flyTo (지도에서 위치 확인 가능)
       flyTo(pos.az, pos.alt);
