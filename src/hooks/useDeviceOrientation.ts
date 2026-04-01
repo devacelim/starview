@@ -68,10 +68,13 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     // Adaptive alpha: heavier smoothing at high elevation where az noise grows
+    // cos(alt) factor: azimuth becomes physically undefined at zenith,
+    // so scale tracking responsiveness by cos(elevation) to suppress gyro drift
     const t = Math.max(0, Math.min(1, (absAlt - AZ_ELEV_START) / (AZ_ELEV_FULL - AZ_ELEV_START)));
-    const alpha = AZ_ALPHA_LOW + (AZ_ALPHA_HIGH - AZ_ALPHA_LOW) * t;
+    const baseAlpha = AZ_ALPHA_LOW + (AZ_ALPHA_HIGH - AZ_ALPHA_LOW) * t;
+    const alpha = baseAlpha * Math.cos(absAlt * D_);
 
-    const a = dist > AZ_GLITCH ? AZ_DRIFT : alpha;
+    const a = dist > AZ_GLITCH ? AZ_DRIFT * Math.cos(absAlt * D_) : alpha;
     let he = sv[0] + dx * a;
     let hn = sv[1] + dy * a;
     const len = Math.sqrt(he * he + hn * hn) || 1;
