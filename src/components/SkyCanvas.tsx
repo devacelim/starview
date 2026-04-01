@@ -34,7 +34,7 @@ export default function SkyCanvas({ skyStateRef, onHit, onHover }: Props) {
     };
     const onMouseUp = () => { isDragging = false; };
     const onMouseMove = (e: MouseEvent) => {
-      if (isDragging && !skyStateRef.current.hasSensor) {
+      if (isDragging && (!skyStateRef.current.hasSensor || skyStateRef.current.viewLocked)) {
         const dx = e.clientX - dragLastX, dy = e.clientY - dragLastY;
         const sens = skyStateRef.current.fov / canvas.width;
         skyStateRef.current.deviceAz = (skyStateRef.current.deviceAz - dx * sens + 360) % 360;
@@ -76,7 +76,7 @@ export default function SkyCanvas({ skyStateRef, onHit, onHover }: Props) {
       }
     };
     const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 1 && !skyStateRef.current.hasSensor) {
+      if (e.touches.length === 1 && (!skyStateRef.current.hasSensor || skyStateRef.current.viewLocked)) {
         const dx = e.touches[0].clientX - touchLastX, dy = e.touches[0].clientY - touchLastY;
         const sens = skyStateRef.current.fov / canvas.width;
         skyStateRef.current.deviceAz = (skyStateRef.current.deviceAz - dx * sens + 360) % 360;

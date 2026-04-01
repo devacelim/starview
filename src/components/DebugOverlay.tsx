@@ -93,7 +93,7 @@ ${recording ? '<span style="color:#ff6b6b">● REC ' + logRef.current.length + '
     <>
       <button
         onClick={() => setVisible(v => !v)}
-        className="fixed z-[200] w-8 h-8 rounded-full bg-red-900/80 border border-red-500/50 text-[10px] text-red-300 font-bold backdrop-blur-sm"
+        className="absolute z-[200] w-8 h-8 rounded-full bg-red-900/80 border border-red-500/50 text-[10px] text-red-300 font-bold backdrop-blur-sm"
         style={{ top: 'calc(env(safe-area-inset-top, 0px) + 112px)', right: '20px' }}
       >
         {visible ? 'X' : 'D'}
@@ -101,7 +101,7 @@ ${recording ? '<span style="color:#ff6b6b">● REC ' + logRef.current.length + '
 
       {visible && (
         <div
-          className="fixed z-[199] bg-black/90 border border-yellow-500/40 rounded-lg p-2 backdrop-blur-md shadow-xl"
+          className="absolute z-[199] bg-black/90 border border-yellow-500/40 rounded-lg p-2 backdrop-blur-md shadow-xl"
           style={{
             top: 'calc(env(safe-area-inset-top, 0px) + 144px)',
             right: '8px',
