@@ -299,19 +299,30 @@ interface ProjectResult {
 }
 
 function project(altDeg: number, azDeg: number, deviceAz: number, deviceAlt: number, W: number, H: number, fovH: number): ProjectResult {
-  const dAz  = ((azDeg  - deviceAz  + 540) % 360) - 180;
-  const dAlt = altDeg - deviceAlt;
-  const scale = Math.max(W, H) / fovH;
-  const x = W / 2 + dAz  * scale;
-  const y = H / 2 - dAlt * scale;
+  const D = Math.PI / 180;
+  const dAz = ((azDeg - deviceAz + 540) % 360) - 180;
+
+  // Gnomonic (tangent-plane) projection — properly shrinks azimuth span near zenith
+  const sinA = Math.sin(altDeg * D), cosA = Math.cos(altDeg * D);
+  const sinD = Math.sin(deviceAlt * D), cosD = Math.cos(deviceAlt * D);
+  const cosDaz = Math.cos(dAz * D);
+  const cosC = sinD * sinA + cosD * cosA * cosDaz;        // cos(angular distance)
+  const safeC = Math.max(cosC, 0.01);                     // clamp to avoid behind-camera
+  const px = (cosA * Math.sin(dAz * D)) / safeC;          // tangent-plane x
+  const py = (cosD * sinA - sinD * cosA * cosDaz) / safeC; // tangent-plane y
+
+  const scale = Math.max(W, H) / (fovH * D);
+  const x = W / 2 + px * scale;
+  const y = H / 2 - py * scale;
   const margin = Math.max(W, H) * 0.12;
-  const visible = x > -margin && x < W + margin && y > -margin && y < H + margin;
+  const visible = cosC > 0 && x > -margin && x < W + margin && y > -margin && y < H + margin;
   return { x, y, visible };
 }
 
 function drawVirtualSky(ctx: CanvasRenderingContext2D, W: number, H: number, deviceAz: number, deviceAlt: number, fov: number): void {
-  const scale  = Math.max(W, H) / fov;
-  const horizY = Math.round(H / 2 + deviceAlt * scale);
+  const D = Math.PI / 180;
+  const scale  = Math.max(W, H) / (fov * D);
+  const horizY = Math.round(H / 2 + Math.tan(deviceAlt * D) * scale);
 
   const skyBottom = Math.max(0, Math.min(H, horizY));
   if (skyBottom > 0) {
@@ -373,7 +384,8 @@ function drawVirtualSky(ctx: CanvasRenderingContext2D, W: number, H: number, dev
 
   const scaleX = W - 24;
   [90, 60, 45, 30, 15, 0, -15, -30, -45, -60].forEach((alt) => {
-    const y = H / 2 - (alt - deviceAlt) * scale;
+    const dAltRad = (alt - deviceAlt) * D;
+    const y = H / 2 - Math.tan(dAltRad) * scale;
     if (y < 8 || y > H - 8) return;
     const isHorizon = alt === 0;
     ctx.save();
