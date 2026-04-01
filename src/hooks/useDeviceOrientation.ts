@@ -8,11 +8,12 @@ import type { SkyState } from '../types';
 
 // Azimuth smoothing (2D vector space — singularity-free)
 const AZ_ALPHA_LOW  = 0.15;         // responsive at low elevation
-const AZ_ALPHA_HIGH = 0.04;         // heavy smoothing near zenith
-const AZ_ELEV_START = 25;           // elevation where adaptive smoothing begins
-const AZ_ELEV_FULL  = 55;           // elevation where maximum smoothing is reached
+const AZ_ALPHA_HIGH = 0.06;         // smoothing near zenith
+const AZ_ELEV_START = 30;           // elevation where adaptive smoothing begins
+const AZ_ELEV_FULL  = 60;           // elevation where maximum smoothing is reached
 const AZ_GLITCH     = 1.2;          // max 2D vector distance per frame (~70°)
 const AZ_DRIFT      = 0.015;        // slow drift toward rejected readings
+const AZ_DEADZONE   = 0.015;        // ignore 2D vector changes below this (~0.9°)
 
 // Altitude smoothing (direct angle — no singularity on this axis)
 const ALT_ALPHA  = 0.15;
@@ -67,14 +68,15 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     const dx = rawE - sv[0], dy = rawN - sv[1];
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    // Adaptive alpha: heavier smoothing at high elevation where az noise grows
-    // cos(alt) factor: azimuth becomes physically undefined at zenith,
-    // so scale tracking responsiveness by cos(elevation) to suppress gyro drift
-    const t = Math.max(0, Math.min(1, (absAlt - AZ_ELEV_START) / (AZ_ELEV_FULL - AZ_ELEV_START)));
-    const baseAlpha = AZ_ALPHA_LOW + (AZ_ALPHA_HIGH - AZ_ALPHA_LOW) * t;
-    const alpha = baseAlpha * Math.cos(absAlt * D_);
+    // Dead zone: ignore micro-drift from gyro bias at high elevation
+    const deadzone = absAlt > AZ_ELEV_START ? AZ_DEADZONE * (1 + (absAlt - AZ_ELEV_START) / 15) : 0;
+    if (dist < deadzone) return ((Math.atan2(sv[0], sv[1]) / D_) + 360) % 360;
 
-    const a = dist > AZ_GLITCH ? AZ_DRIFT * Math.cos(absAlt * D_) : alpha;
+    // Adaptive alpha: heavier smoothing at high elevation where az noise grows
+    const t = Math.max(0, Math.min(1, (absAlt - AZ_ELEV_START) / (AZ_ELEV_FULL - AZ_ELEV_START)));
+    const alpha = AZ_ALPHA_LOW + (AZ_ALPHA_HIGH - AZ_ALPHA_LOW) * t;
+
+    const a = dist > AZ_GLITCH ? AZ_DRIFT : alpha;
     let he = sv[0] + dx * a;
     let hn = sv[1] + dy * a;
     const len = Math.sqrt(he * he + hn * hn) || 1;
