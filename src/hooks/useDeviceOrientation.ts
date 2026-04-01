@@ -6,13 +6,18 @@ import { useRef, useEffect } from 'react';
 import type { MutableRefObject } from 'react';
 import type { SkyState } from '../types';
 
-// Low-pass filter constants
-const ALPHA_LOW  = 0.15;            // lerp factor at low elevation (responsive)
-const ALPHA_HIGH = 0.03;            // lerp factor at high elevation (heavy smoothing)
-const ALPHA_ELEV_START = 25;        // elevation where adaptive smoothing begins
-const ALPHA_ELEV_FULL  = 55;        // elevation where maximum smoothing is reached
-const GLITCH_THRESHOLD = 0.6;       // max unit-vector distance per frame (~35°)
-const DRIFT_ALPHA = 0.015;          // slow drift toward rejected readings (prevents freeze)
+// Azimuth smoothing (2D vector space — singularity-free)
+const AZ_ALPHA_LOW  = 0.15;         // responsive at low elevation
+const AZ_ALPHA_HIGH = 0.04;         // heavy smoothing near zenith
+const AZ_ELEV_START = 25;           // elevation where adaptive smoothing begins
+const AZ_ELEV_FULL  = 55;           // elevation where maximum smoothing is reached
+const AZ_GLITCH     = 1.2;          // max 2D vector distance per frame (~70°)
+const AZ_DRIFT      = 0.015;        // slow drift toward rejected readings
+
+// Altitude smoothing (direct angle — no singularity on this axis)
+const ALT_ALPHA  = 0.15;
+const ALT_GLITCH = 35;              // max degrees per frame before rejection
+const ALT_DRIFT  = 0.01;            // slow drift on rejected alt readings
 
 type DOEWithPermission = typeof DeviceOrientationEvent & {
   requestPermission?: () => Promise<string>;
@@ -39,65 +44,51 @@ function deviceOrientationToAzAlt(alpha: number, beta: number, gamma: number): {
   return { az, alt };
 }
 
-/** Convert az/alt (degrees) to unit vector [east, north, up] */
-function azAltToVec(az: number, alt: number): [number, number, number] {
-  const D = Math.PI / 180;
-  const ca = Math.cos(alt * D);
-  return [Math.sin(az * D) * ca, Math.cos(az * D) * ca, Math.sin(alt * D)];
-}
-
-/** Convert unit vector [east, north, up] back to { az, alt } in degrees */
-function vecToAzAlt(e: number, n: number, u: number): { az: number; alt: number } {
-  const D = Math.PI / 180;
-  const len = Math.sqrt(e * e + n * n + u * u) || 1;
-  const alt = Math.asin(Math.max(-1, Math.min(1, u / len))) / D;
-  const az  = ((Math.atan2(e / len, n / len) / D) + 360) % 360;
-  return { az, alt };
-}
+const D_ = Math.PI / 180;
 
 export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
   const startedRef = useRef(false);
   const hasAbsoluteSensorRef = useRef(false);
   const hasFirstReadingRef = useRef(false);
-  const smoothVec = useRef<[number, number, number]>([0, 1, 0]);
+  // Azimuth: 2D unit vector [east, north] on horizontal plane (no zenith singularity)
+  const smoothHoriz = useRef<[number, number]>([0, 1]);
 
-  /** Lerp + normalize helper */
-  function lerpVec(sv: [number, number, number], raw: [number, number, number], a: number): [number, number, number] {
-    let ve = sv[0] + (raw[0] - sv[0]) * a;
-    let vn = sv[1] + (raw[1] - sv[1]) * a;
-    let vu = sv[2] + (raw[2] - sv[2]) * a;
-    const len = Math.sqrt(ve * ve + vn * vn + vu * vu) || 1;
-    return [ve / len, vn / len, vu / len];
-  }
-
-  /** Smooth in 3D vector space — avoids azimuth singularity near zenith */
-  function smoothOrientation(rawAz: number, rawAlt: number): { az: number; alt: number } {
-    const raw = azAltToVec(rawAz, rawAlt);
+  /** Smooth azimuth via 2D horizontal vector — immune to zenith singularity */
+  function smoothAz(rawAz: number, absAlt: number): number {
+    const rawE = Math.sin(rawAz * D_);
+    const rawN = Math.cos(rawAz * D_);
 
     if (!hasFirstReadingRef.current) {
-      smoothVec.current = raw;
-      return { az: rawAz, alt: rawAlt };
+      smoothHoriz.current = [rawE, rawN];
+      return rawAz;
     }
 
-    // Glitch detection in vector space
-    const dx = raw[0] - smoothVec.current[0];
-    const dy = raw[1] - smoothVec.current[1];
-    const dz = raw[2] - smoothVec.current[2];
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const sv = smoothHoriz.current;
+    const dx = rawE - sv[0], dy = rawN - sv[1];
+    const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (dist > GLITCH_THRESHOLD) {
-      // Likely glitch — but drift slowly toward it to prevent permanent freeze
-      smoothVec.current = lerpVec(smoothVec.current, raw, DRIFT_ALPHA);
-      return vecToAzAlt(smoothVec.current[0], smoothVec.current[1], smoothVec.current[2]);
+    // Adaptive alpha: heavier smoothing at high elevation where az noise grows
+    const t = Math.max(0, Math.min(1, (absAlt - AZ_ELEV_START) / (AZ_ELEV_FULL - AZ_ELEV_START)));
+    const alpha = AZ_ALPHA_LOW + (AZ_ALPHA_HIGH - AZ_ALPHA_LOW) * t;
+
+    const a = dist > AZ_GLITCH ? AZ_DRIFT : alpha;
+    let he = sv[0] + dx * a;
+    let hn = sv[1] + dy * a;
+    const len = Math.sqrt(he * he + hn * hn) || 1;
+    he /= len; hn /= len;
+    smoothHoriz.current = [he, hn];
+
+    return ((Math.atan2(he, hn) / D_) + 360) % 360;
+  }
+
+  /** Smooth altitude directly — no singularity on this axis */
+  function smoothAlt(rawAlt: number): number {
+    if (!hasFirstReadingRef.current) return rawAlt;
+    const dAlt = rawAlt - skyStateRef.current.deviceAlt;
+    if (Math.abs(dAlt) > ALT_GLITCH) {
+      return skyStateRef.current.deviceAlt + dAlt * ALT_DRIFT;
     }
-
-    // Adaptive alpha: stronger smoothing at high elevation (sensor noise amplifies)
-    const absAlt = Math.abs(rawAlt);
-    const t = Math.max(0, Math.min(1, (absAlt - ALPHA_ELEV_START) / (ALPHA_ELEV_FULL - ALPHA_ELEV_START)));
-    const a = ALPHA_LOW + (ALPHA_HIGH - ALPHA_LOW) * t;
-
-    smoothVec.current = lerpVec(smoothVec.current, raw, a);
-    return vecToAzAlt(smoothVec.current[0], smoothVec.current[1], smoothVec.current[2]);
+    return skyStateRef.current.deviceAlt + dAlt * ALT_ALPHA;
   }
 
   function handleAbsolute(e: DeviceOrientationEvent) {
@@ -107,9 +98,9 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
 
     // Rotation-matrix approach: stable at any elevation (no gimbal lock)
     const raw = deviceOrientationToAzAlt(e.alpha, e.beta, e.gamma);
-    const { az, alt } = smoothOrientation(raw.az, raw.alt);
-    skyStateRef.current.deviceAz  = az;
+    const alt = smoothAlt(raw.alt);
     skyStateRef.current.deviceAlt = alt;
+    skyStateRef.current.deviceAz  = smoothAz(raw.az, Math.abs(alt));
     skyStateRef.current.deviceRoll = e.gamma;
     hasFirstReadingRef.current = true;
   }
@@ -131,18 +122,17 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     if (hasCompass) {
       // iOS webkitCompassHeading: already tilt-compensated, use directly for azimuth.
       // Altitude: compute from beta/gamma via rotation matrix formula (gamma-aware).
-      const D    = Math.PI / 180;
-      const rawAlt = Math.asin(Math.max(-1, Math.min(1, -Math.cos(e.beta * D) * Math.cos((e.gamma ?? 0) * D)))) / D;
-      const smoothed = smoothOrientation(wk!, rawAlt);
-      skyStateRef.current.deviceAz  = smoothed.az;
-      skyStateRef.current.deviceAlt = smoothed.alt;
+      const rawAlt = Math.asin(Math.max(-1, Math.min(1, -Math.cos(e.beta * D_) * Math.cos((e.gamma ?? 0) * D_)))) / D_;
+      const alt = smoothAlt(rawAlt);
+      skyStateRef.current.deviceAlt = alt;
+      skyStateRef.current.deviceAz  = smoothAz(wk!, Math.abs(alt));
     } else {
       // Non-iOS fallback: full rotation matrix for both az and alt
       const alpha = hasAbsAlpha ? e.alpha! : (e.alpha ?? 0);
       const raw = deviceOrientationToAzAlt(alpha, e.beta, e.gamma ?? 0);
-      const smoothed = smoothOrientation(raw.az, raw.alt);
-      skyStateRef.current.deviceAz  = smoothed.az;
-      skyStateRef.current.deviceAlt = smoothed.alt;
+      const alt = smoothAlt(raw.alt);
+      skyStateRef.current.deviceAlt = alt;
+      skyStateRef.current.deviceAz  = smoothAz(raw.az, Math.abs(alt));
     }
     hasFirstReadingRef.current = true;
   }
