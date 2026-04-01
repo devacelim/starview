@@ -12,6 +12,7 @@ interface Props {
   arMode: 'ar' | 'virtual';
   toggles: Toggles;
   searchTarget: SearchTarget | null;
+  permGranted: boolean;
   onARModeToggle: () => void;
   onToggleChange: (key: keyof Toggles) => void;
   onSearchTargetSet: (t: SearchTarget | null) => void;
@@ -20,7 +21,7 @@ interface Props {
 }
 
 export default function ARView({
-  skyStateRef, arMode, toggles, searchTarget,
+  skyStateRef, arMode, toggles, searchTarget, permGranted,
   onARModeToggle, onToggleChange, onSearchTargetSet, onPopup, version
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -272,8 +273,8 @@ export default function ARView({
         onClose={() => onSearchTargetSet(null)}
       />
 
-      {/* Debug overlay */}
-      <DebugOverlay skyStateRef={skyStateRef} />
+      {/* Debug overlay — only after permission granted */}
+      {permGranted && <DebugOverlay skyStateRef={skyStateRef} />}
 
       {/* Search overlay */}
       {searchOpen && (

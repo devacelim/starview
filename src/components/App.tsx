@@ -76,6 +76,7 @@ export default function App() {
           arMode={arMode}
           toggles={toggles}
           searchTarget={searchTarget}
+          permGranted={permGranted}
           onARModeToggle={() => setArMode(m => m === 'ar' ? 'virtual' : 'ar')}
           onToggleChange={handleToggle}
           onSearchTargetSet={setSearchTarget}
