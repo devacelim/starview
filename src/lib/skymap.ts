@@ -6,6 +6,10 @@ import { raDecToAltAz } from './astronomy';
 import { drawMiniMoon } from './moon';
 import type { SkyState, HitResult, Star, MoonData, Planet, Constellation } from '../types';
 
+export interface PlanetArrowHit { planet: Planet; bx: number; by: number; br: number; }
+let _planetArrowHits: PlanetArrowHit[] = [];
+export function getPlanetArrowHits(): PlanetArrowHit[] { return _planetArrowHits; }
+
 interface PlanetVisCfg {
   baseR: number;
   c1: string;
@@ -85,7 +89,7 @@ export function drawPlanetDisc(ctx: CanvasRenderingContext2D, cx: number, cy: nu
   ctx.restore();
 }
 
-function drawPlanetEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number, projX: number, projY: number, r: number, planet: Planet, cfg: PlanetVisCfg): void {
+function drawPlanetEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number, projX: number, projY: number, r: number, planet: Planet, cfg: PlanetVisCfg): { bx: number; by: number; br: number } | null {
   const cx = W / 2, cy = H / 2;
   const angle = Math.atan2(projY - cy, projX - cx);
   const cos = Math.cos(angle), sin = Math.sin(angle);
@@ -96,7 +100,7 @@ function drawPlanetEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number
   if (cos < -1e-9) t = Math.min(t, (m - cx) / cos);
   if (sin > 1e-9) t = Math.min(t, (H - m - cy) / sin);
   if (sin < -1e-9) t = Math.min(t, (m - cy) / sin);
-  if (!isFinite(t) || t <= 0) return;
+  if (!isFinite(t) || t <= 0) return null;
 
   const bx = cx + cos * t;
   const by = cy + sin * t;
@@ -144,6 +148,7 @@ function drawPlanetEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number
   ctx.fillText(planet.name, bx, by + br + 3);
 
   ctx.restore();
+  return { bx, by, br };
 }
 
 function drawMoonEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number, projX: number, projY: number, moon: MoonData): void {
@@ -647,11 +652,13 @@ export function renderSky(canvas: HTMLCanvasElement, state: SkyState): void {
   if (tog.planets && planets) {
     const scx = W / 2, scy = H / 2;
     const now = Date.now();
+    _planetArrowHits = []; // reset each frame
 
     planets.forEach((p) => {
       const pos = project(p.altitude, p.azimuth, deviceAz, deviceAlt, W, H, fov);
       const cfg = PLANET_VIS[p.nameEn] || PLANET_VIS.Mercury;
-      const r   = cfg.baseR * Math.max(0.7, 60 / fov);
+      // Disc grows with zoom but is capped so moons remain visible outside it
+      const r   = cfg.baseR * Math.max(0.7, Math.min(2.5, Math.sqrt(60 / fov)));
 
       if (pos.visible && p.altitude > -5) {
         const dist = Math.hypot(pos.x - scx, pos.y - scy);
@@ -698,7 +705,8 @@ export function renderSky(canvas: HTMLCanvasElement, state: SkyState): void {
         ctx.restore();
 
       } else if (p.altitude > -3) {
-        drawPlanetEdgeArrow(ctx, W, H, pos.x, pos.y, r, p, cfg);
+        const hit = drawPlanetEdgeArrow(ctx, W, H, pos.x, pos.y, r, p, cfg);
+        if (hit) _planetArrowHits.push({ planet: p, ...hit });
       }
     });
   }

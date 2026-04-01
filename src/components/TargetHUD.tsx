@@ -57,7 +57,7 @@ export default function TargetHUD({ target, skyStateRef, onClose }: Props) {
     const startAlt = s.deviceAlt;
     const dAz = ((target.az - startAz + 540) % 360) - 180;
     const duration = 900;
-    s.flyLockUntil = Date.now() + duration + 300; // suppress sensor during animation
+    s.viewLocked = true; // lock sensor immediately; stays locked after animation
     const t0 = performance.now();
     function step(now: number) {
       const t = Math.min(1, (now - t0) / duration);

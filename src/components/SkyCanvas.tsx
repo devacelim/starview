@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react';
 import type { MutableRefObject } from 'react';
 import type { SkyState, HitResult } from '../types';
-import { renderSky, hitTest } from '../lib/skymap';
+import { renderSky, hitTest, getPlanetArrowHits } from '../lib/skymap';
 
 interface Props {
   skyStateRef: MutableRefObject<SkyState>;
@@ -48,7 +48,7 @@ export default function SkyCanvas({ skyStateRef, onHit, onHover }: Props) {
     const onMouseLeave = () => onHover(null, 0, 0);
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      skyStateRef.current.fov = Math.max(15, Math.min(120, skyStateRef.current.fov + e.deltaY * 0.05));
+      skyStateRef.current.fov = Math.max(1, Math.min(120, skyStateRef.current.fov + e.deltaY * 0.05));
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (skyStateRef.current.hasSensor) return;
@@ -57,7 +57,7 @@ export default function SkyCanvas({ skyStateRef, onHit, onHover }: Props) {
       if (e.key === 'ArrowRight') skyStateRef.current.deviceAz = (skyStateRef.current.deviceAz + step) % 360;
       if (e.key === 'ArrowUp') skyStateRef.current.deviceAlt = Math.min(85, skyStateRef.current.deviceAlt + step);
       if (e.key === 'ArrowDown') skyStateRef.current.deviceAlt = Math.max(-85, skyStateRef.current.deviceAlt - step);
-      if (e.key === '+' || e.key === '=') skyStateRef.current.fov = Math.max(15, skyStateRef.current.fov - 5);
+      if (e.key === '+' || e.key === '=') skyStateRef.current.fov = Math.max(1, skyStateRef.current.fov - 5);
       if (e.key === '-') skyStateRef.current.fov = Math.min(120, skyStateRef.current.fov + 5);
     };
     const onTouchStart = (e: TouchEvent) => {
@@ -89,7 +89,7 @@ export default function SkyCanvas({ skyStateRef, onHit, onHover }: Props) {
           e.touches[0].clientY - e.touches[1].clientY
         );
         if (lastPinchDist !== null) {
-          skyStateRef.current.fov = Math.max(15, Math.min(120, skyStateRef.current.fov * (lastPinchDist / dist)));
+          skyStateRef.current.fov = Math.max(1, Math.min(120, skyStateRef.current.fov * (lastPinchDist / dist)));
         }
         lastPinchDist = dist;
       }
@@ -106,7 +106,15 @@ export default function SkyCanvas({ skyStateRef, onHit, onHover }: Props) {
     };
     const onClick = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
-      const hit = hitTest(canvas, e.clientX - rect.left, e.clientY - rect.top, skyStateRef.current);
+      const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+      // Check planet edge arrow hit areas first
+      for (const ah of getPlanetArrowHits()) {
+        if (Math.hypot(cx - ah.bx, cy - ah.by) <= ah.br + 8) {
+          onHit({ type: 'planet_arrow', data: ah.planet }, e.clientX, e.clientY);
+          return;
+        }
+      }
+      const hit = hitTest(canvas, cx, cy, skyStateRef.current);
       if (hit) onHit(hit, e.clientX, e.clientY);
     };
 

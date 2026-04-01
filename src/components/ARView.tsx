@@ -27,6 +27,8 @@ export default function ARView({
   const hudDirRef = useRef<HTMLSpanElement>(null);
   const hudTimeRef = useRef<HTMLSpanElement>(null);
   const hudObsRef = useRef<HTMLSpanElement>(null);
+  const lockBtnRef = useRef<HTMLButtonElement>(null);
+  const flyingRef = useRef(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [tooltip, setTooltip] = useState<{ name: string; detail: string; x: number; y: number } | null>(null);
 
@@ -59,6 +61,10 @@ export default function ARView({
     let rafId: number;
     const update = () => {
       const s = skyStateRef.current;
+      if (lockBtnRef.current) {
+        lockBtnRef.current.style.opacity = s.viewLocked ? '1' : '0';
+        lockBtnRef.current.style.pointerEvents = s.viewLocked ? 'auto' : 'none';
+      }
       if (hudDirRef.current)
         hudDirRef.current.textContent = `${azToCompass(s.deviceAz)} ${Math.round(s.deviceAz)}°`;
       if (hudTimeRef.current)
@@ -101,8 +107,34 @@ export default function ARView({
     setTooltip({ name, detail, x, y });
   }, []);
 
+  const flyAndLock = useCallback((az: number, alt: number) => {
+    if (flyingRef.current) return;
+    flyingRef.current = true;
+    const s = skyStateRef.current;
+    s.viewLocked = true;
+    const startAz = s.deviceAz, startAlt = s.deviceAlt;
+    const dAz = ((az - startAz + 540) % 360) - 180;
+    const duration = 900;
+    const t0 = performance.now();
+    function step(now: number) {
+      const t = Math.min(1, (now - t0) / duration);
+      const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      skyStateRef.current.deviceAz  = ((startAz + dAz * ease) + 360) % 360;
+      skyStateRef.current.deviceAlt = Math.max(-85, Math.min(85, startAlt + (alt - startAlt) * ease));
+      if (t < 1) requestAnimationFrame(step);
+      else flyingRef.current = false;
+    }
+    requestAnimationFrame(step);
+  }, [skyStateRef]);
+
   const handleHit = useCallback((hit: HitResult, _x: number, _y: number) => {
     setTooltip(null);
+    if (hit.type === 'planet_arrow') {
+      const p = hit.data as Planet;
+      flyAndLock(p.azimuth, p.altitude);
+      onSearchTargetSet({ az: p.azimuth, alt: p.altitude, name: p.name, icon: p.icon });
+      return;
+    }
     let title = '', bodyHtml = '';
     if (hit.type === 'star') {
       const s = hit.data as Star;
@@ -119,7 +151,7 @@ export default function ARView({
       bodyHtml = `<b>고도:</b> ${p.altitude.toFixed(1)}°<br><b>방위:</b> ${p.azimuth.toFixed(1)}°<br><b>밝기:</b> ${p.mag >= 0 ? '+' : ''}${p.mag} 등급`;
     }
     if (title) onPopup({ title, bodyHtml });
-  }, [onPopup]);
+  }, [flyAndLock, onPopup, onSearchTargetSet]);
 
   const toggleDefs: Array<{ key: keyof Toggles; label: string; icon: string }> = [
     { key: 'stars',          label: '별',    icon: '★' },
@@ -166,6 +198,17 @@ export default function ARView({
         style={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)', right: '16px' }}
       >
         {arMode === 'ar' ? '🔭' : '📷'}
+      </button>
+
+      {/* View lock button — visible only when locked */}
+      <button
+        ref={lockBtnRef}
+        onClick={() => { skyStateRef.current.viewLocked = false; }}
+        className="absolute w-10 h-10 rounded-full border border-orange-400/70 bg-orange-950/85 backdrop-blur-md flex items-center justify-center text-base cursor-pointer z-[96]"
+        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 60px)', right: '16px', opacity: 0, pointerEvents: 'none' }}
+        title="잠금 해제"
+      >
+        🔒
       </button>
 
       {/* Hover tooltip */}

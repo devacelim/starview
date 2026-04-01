@@ -67,7 +67,7 @@ export interface SkyState {
   toggles: Toggles;
   searchTarget: SearchTarget | null;
   hasSensor: boolean;
-  flyLockUntil: number;  // timestamp: suppress sensor writes during fly animation
+  viewLocked: boolean;   // when true, sensor doesn't overwrite deviceAz/deviceAlt
   // Debug: raw sensor values
   rawAlpha: number;
   rawBeta: number;
@@ -78,7 +78,7 @@ export interface SkyState {
   sensorSource: string;
 }
 
-export type HitType = 'star' | 'moon' | 'planet';
+export type HitType = 'star' | 'moon' | 'planet' | 'planet_arrow';
 export interface HitResult {
   type: HitType;
   data: Star | MoonData | Planet;
