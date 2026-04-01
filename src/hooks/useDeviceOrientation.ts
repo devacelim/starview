@@ -6,14 +6,11 @@ import { useRef, useEffect } from 'react';
 import type { MutableRefObject } from 'react';
 import type { SkyState } from '../types';
 
-// Azimuth smoothing (2D vector space — singularity-free)
-const AZ_ALPHA_LOW  = 0.15;         // responsive at low elevation
-const AZ_ALPHA_HIGH = 0.06;         // smoothing near zenith
-const AZ_ELEV_START = 30;           // elevation where adaptive smoothing begins
-const AZ_ELEV_FULL  = 60;           // elevation where maximum smoothing is reached
-const AZ_GLITCH     = 1.2;          // max 2D vector distance per frame (~70°)
-const AZ_DRIFT      = 0.015;        // slow drift toward rejected readings
-const AZ_DEADZONE   = 0.015;        // ignore 2D vector changes below this (~0.9°)
+// Azimuth smoothing: double-EMA in 2D vector space (singularity-free)
+const AZ_ALPHA1  = 0.25;            // first stage: tracks movement
+const AZ_ALPHA2  = 0.15;            // second stage: kills oscillation
+const AZ_GLITCH  = 1.2;             // max 2D vector distance per frame (~70°)
+const AZ_DRIFT   = 0.01;            // slow drift toward rejected readings
 
 // Altitude smoothing (direct angle — no singularity on this axis)
 const ALT_ALPHA  = 0.15;
@@ -51,39 +48,39 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
   const startedRef = useRef(false);
   const hasAbsoluteSensorRef = useRef(false);
   const hasFirstReadingRef = useRef(false);
-  // Azimuth: 2D unit vector [east, north] on horizontal plane (no zenith singularity)
-  const smoothHoriz = useRef<[number, number]>([0, 1]);
+  // Double-EMA azimuth filter: two cascaded stages in 2D vector space
+  const stage1Ref = useRef<[number, number]>([0, 1]);    // intermediate
+  const stage2Ref = useRef<[number, number]>([0, 1]);    // final output
 
-  /** Smooth azimuth via 2D horizontal vector — immune to zenith singularity */
-  function smoothAz(rawAz: number, absAlt: number): number {
+  /** Double-EMA azimuth filter — immune to zenith singularity + kills oscillation */
+  function smoothAz(rawAz: number): number {
     const rawE = Math.sin(rawAz * D_);
     const rawN = Math.cos(rawAz * D_);
 
     if (!hasFirstReadingRef.current) {
-      smoothHoriz.current = [rawE, rawN];
+      stage1Ref.current = [rawE, rawN];
+      stage2Ref.current = [rawE, rawN];
       return rawAz;
     }
 
-    const sv = smoothHoriz.current;
-    const dx = rawE - sv[0], dy = rawN - sv[1];
-    const dist = Math.sqrt(dx * dx + dy * dy);
+    // Stage 1: moderate filter on raw input
+    const s1 = stage1Ref.current;
+    const dx1 = rawE - s1[0], dy1 = rawN - s1[1];
+    const dist1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+    const a1 = dist1 > AZ_GLITCH ? AZ_DRIFT : AZ_ALPHA1;
+    let s1e = s1[0] + dx1 * a1, s1n = s1[1] + dy1 * a1;
+    let len1 = Math.sqrt(s1e * s1e + s1n * s1n) || 1;
+    stage1Ref.current = [s1e / len1, s1n / len1];
 
-    // Dead zone: ignore micro-drift from gyro bias at high elevation
-    const deadzone = absAlt > AZ_ELEV_START ? AZ_DEADZONE * (1 + (absAlt - AZ_ELEV_START) / 15) : 0;
-    if (dist < deadzone) return ((Math.atan2(sv[0], sv[1]) / D_) + 360) % 360;
+    // Stage 2: smooth the intermediate → kills high-frequency oscillation
+    const s2 = stage2Ref.current;
+    const dx2 = stage1Ref.current[0] - s2[0], dy2 = stage1Ref.current[1] - s2[1];
+    let s2e = s2[0] + dx2 * AZ_ALPHA2;
+    let s2n = s2[1] + dy2 * AZ_ALPHA2;
+    let len2 = Math.sqrt(s2e * s2e + s2n * s2n) || 1;
+    stage2Ref.current = [s2e / len2, s2n / len2];
 
-    // Adaptive alpha: heavier smoothing at high elevation where az noise grows
-    const t = Math.max(0, Math.min(1, (absAlt - AZ_ELEV_START) / (AZ_ELEV_FULL - AZ_ELEV_START)));
-    const alpha = AZ_ALPHA_LOW + (AZ_ALPHA_HIGH - AZ_ALPHA_LOW) * t;
-
-    const a = dist > AZ_GLITCH ? AZ_DRIFT : alpha;
-    let he = sv[0] + dx * a;
-    let hn = sv[1] + dy * a;
-    const len = Math.sqrt(he * he + hn * hn) || 1;
-    he /= len; hn /= len;
-    smoothHoriz.current = [he, hn];
-
-    return ((Math.atan2(he, hn) / D_) + 360) % 360;
+    return ((Math.atan2(stage2Ref.current[0], stage2Ref.current[1]) / D_) + 360) % 360;
   }
 
   /** Smooth altitude directly — no singularity on this axis */
@@ -105,7 +102,7 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     const raw = deviceOrientationToAzAlt(e.alpha, e.beta, e.gamma);
     const alt = smoothAlt(raw.alt);
     skyStateRef.current.deviceAlt = alt;
-    skyStateRef.current.deviceAz  = smoothAz(raw.az, Math.abs(alt));
+    skyStateRef.current.deviceAz  = smoothAz(raw.az);
     skyStateRef.current.deviceRoll = e.gamma;
     hasFirstReadingRef.current = true;
   }
@@ -130,14 +127,14 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
       const rawAlt = Math.asin(Math.max(-1, Math.min(1, -Math.cos(e.beta * D_) * Math.cos((e.gamma ?? 0) * D_)))) / D_;
       const alt = smoothAlt(rawAlt);
       skyStateRef.current.deviceAlt = alt;
-      skyStateRef.current.deviceAz  = smoothAz(wk!, Math.abs(alt));
+      skyStateRef.current.deviceAz  = smoothAz(wk!);
     } else {
       // Non-iOS fallback: full rotation matrix for both az and alt
       const alpha = hasAbsAlpha ? e.alpha! : (e.alpha ?? 0);
       const raw = deviceOrientationToAzAlt(alpha, e.beta, e.gamma ?? 0);
       const alt = smoothAlt(raw.alt);
       skyStateRef.current.deviceAlt = alt;
-      skyStateRef.current.deviceAz  = smoothAz(raw.az, Math.abs(alt));
+      skyStateRef.current.deviceAz  = smoothAz(raw.az);
     }
     hasFirstReadingRef.current = true;
   }
