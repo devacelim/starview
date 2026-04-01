@@ -6,15 +6,11 @@ import { useRef, useEffect } from 'react';
 import type { MutableRefObject } from 'react';
 import type { SkyState } from '../types';
 
-// Azimuth smoothing: double-EMA in 2D vector space (singularity-free)
+// Azimuth smoothing: double-EMA in 2D vector space (wrap-safe)
 const AZ_ALPHA1  = 0.25;            // first stage: tracks movement
 const AZ_ALPHA2  = 0.15;            // second stage: kills oscillation
 const AZ_GLITCH  = 1.2;             // max 2D vector distance per frame (~70°)
 const AZ_DRIFT   = 0.01;            // slow drift toward rejected readings
-
-// Pre-smoothing: filter raw sensor axes before rotation matrix (kills noise at source)
-const GAMMA_ALPHA = 0.3;            // smooth gamma — main source of az noise at high elev
-const BETA_ALPHA  = 0.4;            // light smooth on beta
 
 // Altitude smoothing (direct angle — no singularity on this axis)
 const ALT_ALPHA  = 0.15;
@@ -52,26 +48,11 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
   const startedRef = useRef(false);
   const hasAbsoluteSensorRef = useRef(false);
   const hasFirstReadingRef = useRef(false);
-  // Pre-smoothing: filter raw gamma/beta before rotation matrix
-  const smoothGammaRef = useRef(0);
-  const smoothBetaRef = useRef(90);
   // Double-EMA azimuth filter: two cascaded stages in 2D vector space
   const stage1Ref = useRef<[number, number]>([0, 1]);    // intermediate
   const stage2Ref = useRef<[number, number]>([0, 1]);    // final output
 
-  /** Pre-smooth raw sensor axes to reduce noise before rotation matrix */
-  function preSmooth(alpha: number, beta: number, gamma: number): { alpha: number; beta: number; gamma: number } {
-    if (!hasFirstReadingRef.current) {
-      smoothGammaRef.current = gamma;
-      smoothBetaRef.current = beta;
-      return { alpha, beta, gamma };
-    }
-    smoothGammaRef.current += (gamma - smoothGammaRef.current) * GAMMA_ALPHA;
-    smoothBetaRef.current += (beta - smoothBetaRef.current) * BETA_ALPHA;
-    return { alpha, beta: smoothBetaRef.current, gamma: smoothGammaRef.current };
-  }
-
-  /** Double-EMA azimuth filter — immune to zenith singularity + kills oscillation */
+  /** Double-EMA azimuth filter in 2D vector space (wrap-safe) */
   function smoothAz(rawAz: number): number {
     const rawE = Math.sin(rawAz * D_);
     const rawN = Math.cos(rawAz * D_);
@@ -117,12 +98,14 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     skyStateRef.current.hasSensor = true;
     if (e.alpha == null || e.beta == null || e.gamma == null) return;
 
-    // Pre-smooth beta/gamma to reduce noise before rotation matrix
-    const sm = preSmooth(e.alpha, e.beta, e.gamma);
-    const raw = deviceOrientationToAzAlt(sm.alpha, sm.beta, sm.gamma);
-    const alt = smoothAlt(raw.alt);
+    // Use alpha DIRECTLY for azimuth — already a tilt-compensated compass heading.
+    // Rotation matrix adds gamma noise into azimuth at high elevation (gimbal lock).
+    // Altitude: simple formula from beta/gamma (no alpha dependency, no singularity).
+    const rawAlt = Math.asin(Math.max(-1, Math.min(1,
+      -Math.cos(e.beta * D_) * Math.cos(e.gamma * D_)))) / D_;
+    const alt = smoothAlt(rawAlt);
     skyStateRef.current.deviceAlt = alt;
-    skyStateRef.current.deviceAz  = smoothAz(raw.az);
+    skyStateRef.current.deviceAz  = smoothAz(e.alpha);
     skyStateRef.current.deviceRoll = e.gamma;
     hasFirstReadingRef.current = true;
   }
@@ -141,23 +124,20 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     skyStateRef.current.hasSensor = true;
     skyStateRef.current.deviceRoll = e.gamma ?? 0;
 
-    // Pre-smooth beta/gamma to reduce noise before rotation matrix
-    const sm = preSmooth(e.alpha ?? 0, e.beta, e.gamma ?? 0);
+    // Altitude from beta/gamma (no alpha dependency, no singularity)
+    const rawAlt = Math.asin(Math.max(-1, Math.min(1,
+      -Math.cos(e.beta * D_) * Math.cos((e.gamma ?? 0) * D_)))) / D_;
+    const alt = smoothAlt(rawAlt);
+    skyStateRef.current.deviceAlt = alt;
 
     if (hasCompass) {
-      // iOS webkitCompassHeading: already tilt-compensated, use directly for azimuth.
-      // Altitude: compute from smoothed beta/gamma (gamma-aware).
-      const rawAlt = Math.asin(Math.max(-1, Math.min(1, -Math.cos(sm.beta * D_) * Math.cos(sm.gamma * D_)))) / D_;
-      const alt = smoothAlt(rawAlt);
-      skyStateRef.current.deviceAlt = alt;
-      skyStateRef.current.deviceAz  = smoothAz(wk!);
+      // iOS: webkitCompassHeading is already tilt-compensated
+      skyStateRef.current.deviceAz = smoothAz(wk!);
     } else {
-      // Non-iOS fallback: full rotation matrix for both az and alt
-      const alpha = hasAbsAlpha ? e.alpha! : sm.alpha;
-      const raw = deviceOrientationToAzAlt(alpha, sm.beta, sm.gamma);
-      const alt = smoothAlt(raw.alt);
-      skyStateRef.current.deviceAlt = alt;
-      skyStateRef.current.deviceAz  = smoothAz(raw.az);
+      // Android/fallback: use alpha directly — no rotation matrix needed for azimuth
+      // Rotation matrix extracts az = alpha + gamma_noise, making it worse at high elevation
+      const alpha = hasAbsAlpha ? e.alpha! : (e.alpha ?? 0);
+      skyStateRef.current.deviceAz = smoothAz(alpha);
     }
     hasFirstReadingRef.current = true;
   }
