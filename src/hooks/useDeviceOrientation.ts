@@ -8,11 +8,11 @@ import type { SkyState } from '../types';
 
 // Low-pass filter constants
 const ALPHA_LOW  = 0.15;            // lerp factor at low elevation (responsive)
-const ALPHA_HIGH = 0.05;            // lerp factor at high elevation (strong smoothing)
-const ALPHA_ELEV_START = 30;        // elevation where adaptive smoothing begins
-const ALPHA_ELEV_FULL  = 65;        // elevation where maximum smoothing is reached
+const ALPHA_HIGH = 0.03;            // lerp factor at high elevation (heavy smoothing)
+const ALPHA_ELEV_START = 25;        // elevation where adaptive smoothing begins
+const ALPHA_ELEV_FULL  = 55;        // elevation where maximum smoothing is reached
 const GLITCH_THRESHOLD = 0.6;       // max unit-vector distance per frame (~35°)
-const DRIFT_ALPHA = 0.02;           // slow drift toward rejected readings (prevents freeze)
+const DRIFT_ALPHA = 0.015;          // slow drift toward rejected readings (prevents freeze)
 
 type DOEWithPermission = typeof DeviceOrientationEvent & {
   requestPermission?: () => Promise<string>;
