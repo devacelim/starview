@@ -117,10 +117,10 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     const rawAlt = Math.asin(Math.max(-1, Math.min(1,
       -Math.cos(e.beta * D_) * Math.cos(e.gamma * D_)))) / D_;
     skyStateRef.current.rawAlt = rawAlt;
-    const alt = smoothAlt(rawAlt);
-    skyStateRef.current.deviceAlt = alt;
 
     if (skyStateRef.current.viewLocked) return;
+
+    skyStateRef.current.deviceAlt = smoothAlt(rawAlt);
 
     const prevAz = skyStateRef.current.deviceAz;
     skyStateRef.current.deviceAz  = smoothAz(e.alpha);
@@ -157,10 +157,10 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     const rawAlt = Math.asin(Math.max(-1, Math.min(1,
       -Math.cos(e.beta * D_) * Math.cos((e.gamma ?? 0) * D_)))) / D_;
     skyStateRef.current.rawAlt = rawAlt;
-    const alt = smoothAlt(rawAlt);
-    skyStateRef.current.deviceAlt = alt;
 
     if (skyStateRef.current.viewLocked) return;
+
+    skyStateRef.current.deviceAlt = smoothAlt(rawAlt);
 
     const prevAz = skyStateRef.current.deviceAz;
     if (hasCompass) {
