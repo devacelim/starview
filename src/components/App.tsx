@@ -12,7 +12,7 @@ import EventsScreen from './EventsScreen';
 import TabBar from './TabBar';
 import Popup from './Popup';
 
-const APP_VERSION = 'v2.9';
+const APP_VERSION = 'v2.10';
 
 const initialSkyState: SkyState = {
   lat: null, lon: null,

@@ -7,9 +7,12 @@ import type { MutableRefObject } from 'react';
 import type { SkyState } from '../types';
 
 // Low-pass filter constants
-const SMOOTH_ALPHA = 0.15;          // vector lerp factor (0→frozen, 1→raw)
+const ALPHA_LOW  = 0.15;            // lerp factor at low elevation (responsive)
+const ALPHA_HIGH = 0.05;            // lerp factor at high elevation (strong smoothing)
+const ALPHA_ELEV_START = 30;        // elevation where adaptive smoothing begins
+const ALPHA_ELEV_FULL  = 65;        // elevation where maximum smoothing is reached
 const GLITCH_THRESHOLD = 0.6;       // max unit-vector distance per frame (~35°)
-const GLITCH_ACCEPT_COUNT = 8;      // accept raw value after N consecutive rejections
+const DRIFT_ALPHA = 0.02;           // slow drift toward rejected readings (prevents freeze)
 
 type DOEWithPermission = typeof DeviceOrientationEvent & {
   requestPermission?: () => Promise<string>;
@@ -57,7 +60,15 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
   const hasAbsoluteSensorRef = useRef(false);
   const hasFirstReadingRef = useRef(false);
   const smoothVec = useRef<[number, number, number]>([0, 1, 0]);
-  const glitchRejectCount = useRef(0);
+
+  /** Lerp + normalize helper */
+  function lerpVec(sv: [number, number, number], raw: [number, number, number], a: number): [number, number, number] {
+    let ve = sv[0] + (raw[0] - sv[0]) * a;
+    let vn = sv[1] + (raw[1] - sv[1]) * a;
+    let vu = sv[2] + (raw[2] - sv[2]) * a;
+    const len = Math.sqrt(ve * ve + vn * vn + vu * vu) || 1;
+    return [ve / len, vn / len, vu / len];
+  }
 
   /** Smooth in 3D vector space — avoids azimuth singularity near zenith */
   function smoothOrientation(rawAz: number, rawAlt: number): { az: number; alt: number } {
@@ -68,32 +79,25 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
       return { az: rawAz, alt: rawAlt };
     }
 
-    // Glitch detection: squared distance between unit vectors
+    // Glitch detection in vector space
     const dx = raw[0] - smoothVec.current[0];
     const dy = raw[1] - smoothVec.current[1];
     const dz = raw[2] - smoothVec.current[2];
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-    if (dist > GLITCH_THRESHOLD && glitchRejectCount.current < GLITCH_ACCEPT_COUNT) {
-      // Likely a sensor glitch — reject, but count consecutive rejections
-      glitchRejectCount.current++;
-      return { az: skyStateRef.current.deviceAz, alt: skyStateRef.current.deviceAlt };
+    if (dist > GLITCH_THRESHOLD) {
+      // Likely glitch — but drift slowly toward it to prevent permanent freeze
+      smoothVec.current = lerpVec(smoothVec.current, raw, DRIFT_ALPHA);
+      return vecToAzAlt(smoothVec.current[0], smoothVec.current[1], smoothVec.current[2]);
     }
 
-    // Accept: either within threshold, or too many consecutive rejections (real movement)
-    glitchRejectCount.current = 0;
-    const a = SMOOTH_ALPHA;
-    const sv = smoothVec.current;
-    let ve = sv[0] + (raw[0] - sv[0]) * a;
-    let vn = sv[1] + (raw[1] - sv[1]) * a;
-    let vu = sv[2] + (raw[2] - sv[2]) * a;
+    // Adaptive alpha: stronger smoothing at high elevation (sensor noise amplifies)
+    const absAlt = Math.abs(rawAlt);
+    const t = Math.max(0, Math.min(1, (absAlt - ALPHA_ELEV_START) / (ALPHA_ELEV_FULL - ALPHA_ELEV_START)));
+    const a = ALPHA_LOW + (ALPHA_HIGH - ALPHA_LOW) * t;
 
-    // Re-normalize
-    const len = Math.sqrt(ve * ve + vn * vn + vu * vu) || 1;
-    ve /= len; vn /= len; vu /= len;
-    smoothVec.current = [ve, vn, vu];
-
-    return vecToAzAlt(ve, vn, vu);
+    smoothVec.current = lerpVec(smoothVec.current, raw, a);
+    return vecToAzAlt(smoothVec.current[0], smoothVec.current[1], smoothVec.current[2]);
   }
 
   function handleAbsolute(e: DeviceOrientationEvent) {
