@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#0a0a1a" rx="80"/>
+  <!-- Stars -->
+  <circle cx="256" cy="180" r="8" fill="#f5f5e0" opacity="0.95"/>
+  <circle cx="160" cy="220" r="5" fill="#b0c8ff" opacity="0.8"/>
+  <circle cx="350" cy="200" r="6" fill="#f5f5e0" opacity="0.85"/>
+  <circle cx="200" cy="280" r="4" fill="#b0c8ff" opacity="0.7"/>
+  <circle cx="300" cy="260" r="4" fill="#f5f5e0" opacity="0.75"/>
+  <circle cx="130" cy="300" r="3" fill="#b0c8ff" opacity="0.6"/>
+  <circle cx="380" cy="290" r="3" fill="#b0c8ff" opacity="0.65"/>
+  <!-- Constellation lines -->
+  <line x1="256" y1="180" x2="160" y2="220" stroke="#7eb8f7" stroke-width="2" opacity="0.5"/>
+  <line x1="256" y1="180" x2="350" y2="200" stroke="#7eb8f7" stroke-width="2" opacity="0.5"/>
+  <line x1="160" y1="220" x2="200" y2="280" stroke="#7eb8f7" stroke-width="2" opacity="0.4"/>
+  <line x1="350" y1="200" x2="300" y2="260" stroke="#7eb8f7" stroke-width="2" opacity="0.4"/>
+  <!-- Moon crescent -->
+  <circle cx="256" cy="380" r="50" fill="#d4cfa0" opacity="0.9"/>
+  <circle cx="275" cy="370" r="42" fill="#0a0a1a"/>
+  <!-- Text -->
+  <text x="256" y="480" font-family="-apple-system,sans-serif" font-size="36" font-weight="700" fill="#7eb8f7" text-anchor="middle">StarView</text>
+</svg>
