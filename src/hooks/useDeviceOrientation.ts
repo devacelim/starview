@@ -52,6 +52,12 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
   const stage1Ref = useRef<[number, number]>([0, 1]);    // intermediate
   const stage2Ref = useRef<[number, number]>([0, 1]);    // final output
 
+  // iOS webkitCompassHeading gimbal-lock flip compensation.
+  // At ~45° device tilt, iOS compass flips ~180°. We track the accumulated
+  // offset and un-flip the input so smoothAz sees no discontinuity.
+  const prevWkRef = useRef<number | null>(null);
+  const wkOffsetRef = useRef<number>(0);
+
   /** Double-EMA azimuth filter in 2D vector space (wrap-safe) */
   function smoothAz(rawAz: number): number {
     const rawE = Math.sin(rawAz * D_);
@@ -98,14 +104,28 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     skyStateRef.current.hasSensor = true;
     if (e.alpha == null || e.beta == null || e.gamma == null) return;
 
-    // Use alpha DIRECTLY for azimuth — already a tilt-compensated compass heading.
-    // Rotation matrix adds gamma noise into azimuth at high elevation (gimbal lock).
-    // Altitude: simple formula from beta/gamma (no alpha dependency, no singularity).
+    // Debug: store raw sensor values
+    skyStateRef.current.rawAlpha = e.alpha;
+    skyStateRef.current.rawBeta = e.beta;
+    skyStateRef.current.rawGamma = e.gamma;
+    skyStateRef.current.sensorSource = 'absolute';
+
+    // Rotation matrix az (for comparison — NOT used for output)
+    const { az: matrixAz } = deviceOrientationToAzAlt(e.alpha, e.beta, e.gamma);
+    skyStateRef.current.rawAz = matrixAz;
+
     const rawAlt = Math.asin(Math.max(-1, Math.min(1,
       -Math.cos(e.beta * D_) * Math.cos(e.gamma * D_)))) / D_;
+    skyStateRef.current.rawAlt = rawAlt;
     const alt = smoothAlt(rawAlt);
     skyStateRef.current.deviceAlt = alt;
+
+    if (Date.now() < skyStateRef.current.flyLockUntil) { hasFirstReadingRef.current = true; return; }
+
+    const prevAz = skyStateRef.current.deviceAz;
     skyStateRef.current.deviceAz  = smoothAz(e.alpha);
+    skyStateRef.current.azDelta = ((skyStateRef.current.deviceAz - prevAz + 540) % 360) - 180;
+
     skyStateRef.current.deviceRoll = e.gamma;
     hasFirstReadingRef.current = true;
   }
@@ -124,21 +144,46 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     skyStateRef.current.hasSensor = true;
     skyStateRef.current.deviceRoll = e.gamma ?? 0;
 
+    // Debug: store raw sensor values
+    skyStateRef.current.rawAlpha = e.alpha ?? 0;
+    skyStateRef.current.rawBeta = e.beta;
+    skyStateRef.current.rawGamma = e.gamma ?? 0;
+
+    // Rotation matrix az (for comparison)
+    const { az: matrixAz } = deviceOrientationToAzAlt(e.alpha ?? 0, e.beta, e.gamma ?? 0);
+    skyStateRef.current.rawAz = matrixAz;
+
     // Altitude from beta/gamma (no alpha dependency, no singularity)
     const rawAlt = Math.asin(Math.max(-1, Math.min(1,
       -Math.cos(e.beta * D_) * Math.cos((e.gamma ?? 0) * D_)))) / D_;
+    skyStateRef.current.rawAlt = rawAlt;
     const alt = smoothAlt(rawAlt);
     skyStateRef.current.deviceAlt = alt;
 
+    if (Date.now() < skyStateRef.current.flyLockUntil) { hasFirstReadingRef.current = true; return; }
+
+    const prevAz = skyStateRef.current.deviceAz;
     if (hasCompass) {
-      // iOS: webkitCompassHeading is already tilt-compensated
-      skyStateRef.current.deviceAz = smoothAz(wk!);
+      // Detect iOS gimbal-lock flip: wk jumps >120° in one frame (physically
+      // impossible as real rotation at 60fps; always a sensor artifact at ~45° tilt).
+      // Accumulate offset to un-flip so the filter input is continuous.
+      const prevWk = prevWkRef.current;
+      if (prevWk !== null) {
+        const wkJump = ((wk! - prevWk + 540) % 360) - 180;
+        if (Math.abs(wkJump) > 120) {
+          wkOffsetRef.current = ((wkOffsetRef.current - wkJump) % 360 + 360) % 360;
+        }
+      }
+      prevWkRef.current = wk!;
+      const correctedWk = ((wk! + wkOffsetRef.current) % 360 + 360) % 360;
+      skyStateRef.current.deviceAz = smoothAz(correctedWk);
+      skyStateRef.current.sensorSource = `wk:${wk!.toFixed(0)} off:${wkOffsetRef.current.toFixed(0)}`;
     } else {
-      // Android/fallback: use alpha directly — no rotation matrix needed for azimuth
-      // Rotation matrix extracts az = alpha + gamma_noise, making it worse at high elevation
       const alpha = hasAbsAlpha ? e.alpha! : (e.alpha ?? 0);
       skyStateRef.current.deviceAz = smoothAz(alpha);
+      skyStateRef.current.sensorSource = hasAbsAlpha ? 'abs-alpha' : 'rel-alpha';
     }
+    skyStateRef.current.azDelta = ((skyStateRef.current.deviceAz - prevAz + 540) % 360) - 180;
     hasFirstReadingRef.current = true;
   }
 

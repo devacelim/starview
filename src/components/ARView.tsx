@@ -4,6 +4,7 @@ import type { SkyState, Toggles, SearchTarget, HitResult, PopupContent, Star, Mo
 import SkyCanvas from './SkyCanvas';
 import SearchOverlay from './SearchOverlay';
 import TargetHUD from './TargetHUD';
+import DebugOverlay from './DebugOverlay';
 import { azToCompass, nowTimeStr } from '../lib/ui';
 
 interface Props {
@@ -217,6 +218,9 @@ export default function ARView({
         skyStateRef={skyStateRef}
         onClose={() => onSearchTargetSet(null)}
       />
+
+      {/* Debug overlay */}
+      <DebugOverlay skyStateRef={skyStateRef} />
 
       {/* Search overlay */}
       {searchOpen && (

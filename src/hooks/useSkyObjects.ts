@@ -40,8 +40,19 @@ export function useSkyObjects(skyStateRef: MutableRefObject<SkyState>, permGrant
 
   async function updateSkyObjects() {
     const s = skyStateRef.current;
-    if (!s.lat) return;
+    if (!s.lat || !s.lon) return;
     const now = new Date();
+    // Always use local Keplerian planet calculations (API uses simplified formula)
+    const localPlanets = getPlanetPositions(now, s.lat, s.lon);
+    const { ra: mRa, dec: mDec } = getMoonPosition(now);
+    const { altitude: mAlt, azimuth: mAz } = raDecToAltAz(mRa, mDec, now, s.lat, s.lon);
+    const { phase: mPhase, illumination: mIllu } = getMoonPhase(now);
+    const localMoon: MoonData = { ra: mRa, dec: mDec, altitude: mAlt, azimuth: mAz, phase: mPhase, illumination: mIllu };
+
+    // Dynamic satellite positions
+    const satPositions = getSatellitePositions(now);
+    const satMap = Object.fromEntries(satPositions.map((sat) => [sat.id, sat]));
+
     try {
       const res = await fetch(
         `/api/celestial?lat=${s.lat}&lon=${s.lon}&ts=${now.getTime()}`,
@@ -49,14 +60,26 @@ export function useSkyObjects(skyStateRef: MutableRefObject<SkyState>, permGrant
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      skyStateRef.current.stars   = data.stars;
-      skyStateRef.current.planets = data.planets;
-      skyStateRef.current.moon    = data.moon;
-      setPlanets(data.planets || []);
-      setMoon(data.moon || null);
+      // Use API star catalog but overlay dynamic satellite positions
+      const apiStars = (data.stars || []).map((star: any) =>
+        star.type === 'satellite' && satMap[star.id]
+          ? { ...star, ...satMap[star.id], altitude: undefined, azimuth: undefined }
+          : star
+      );
+      skyStateRef.current.stars   = apiStars;
     } catch {
-      _localUpdate(now);
+      // Fallback: local star data with dynamic satellite positions
+      skyStateRef.current.stars = getStarsData().map((star) =>
+        star.type === 'satellite' && satMap[star.id]
+          ? { ...star, ...satMap[star.id], altitude: undefined, azimuth: undefined }
+          : star
+      );
     }
+
+    skyStateRef.current.planets = localPlanets;
+    skyStateRef.current.moon    = localMoon;
+    setPlanets(localPlanets);
+    setMoon(localMoon);
   }
 
   useEffect(() => {

@@ -474,7 +474,10 @@ export function renderSky(canvas: HTMLCanvasElement, state: SkyState): void {
   const nowMs = Date.now();
   if (nowMs - _altAzCacheAt > 2000 || _altAzCache.size === 0) {
     _altAzCacheAt = nowMs;
-    catalog.forEach((star) => {
+    // Cache alt/az for both API catalog and local starsData
+    // (local starsData has constellation-compatible IDs like "betelgeuse")
+    const allStars = catalog === starsData ? catalog : [...catalog, ...starsData];
+    allStars.forEach((star) => {
       if (star.altitude === undefined || star.azimuth === undefined) {
         _altAzCache.set(star.id, raDecToAltAz(star.ra, star.dec, date, lat, lon));
       }
@@ -496,6 +499,20 @@ export function renderSky(canvas: HTMLCanvasElement, state: SkyState): void {
     projMap.set(star.id, ps);
     return ps;
   });
+
+  // Ensure local starsData entries are in projMap for constellation lines.
+  // API stars may use different IDs (e.g., Supabase UUIDs) that don't match
+  // constellation line references (e.g., "betelgeuse", "alnilam").
+  if (catalog !== starsData) {
+    starsData.forEach((star) => {
+      if (projMap.has(star.id)) return;
+      const cached = _altAzCache.get(star.id);
+      const altitude = cached?.altitude ?? 0;
+      const azimuth  = cached?.azimuth ?? 0;
+      const ps = { ...star, altitude, azimuth, ...project(altitude, azimuth, deviceAz, deviceAlt, W, H, fov) };
+      projMap.set(star.id, ps);
+    });
+  }
 
   if (tog.constellations) {
     constsData.forEach((c) => {
@@ -544,6 +561,7 @@ export function renderSky(canvas: HTMLCanvasElement, state: SkyState): void {
   if (tog.stars) {
     projected.forEach((star) => {
       if (!star.visible) return;
+      if (star.type === 'satellite') return; // drawn after planets so they appear on top
 
       const belowHorizon = star.altitude < 0;
       const alphaMult    = belowHorizon ? 0.3 : 1.0;
@@ -681,6 +699,46 @@ export function renderSky(canvas: HTMLCanvasElement, state: SkyState): void {
 
       } else if (p.altitude > -3) {
         drawPlanetEdgeArrow(ctx, W, H, pos.x, pos.y, r, p, cfg);
+      }
+    });
+  }
+
+  // Draw satellites (moons of planets) on top of planet discs
+  if (tog.stars) {
+    projected.forEach((star) => {
+      if (!star.visible || star.type !== 'satellite') return;
+
+      const belowHorizon = star.altitude < 0;
+      const alphaMult    = belowHorizon ? 0.3 : 1.0;
+      const radius       = Math.max(1.2, 3.0 - star.mag * 0.7);
+      const baseAlpha    = Math.min(1, Math.max(0.4, (6 - star.mag) / 5));
+      const alpha        = baseAlpha * alphaMult;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(star.x, star.y, radius * 2.2, 0, Math.PI * 2);
+      const satGrad = ctx.createRadialGradient(star.x, star.y, 0, star.x, star.y, radius * 2.2);
+      satGrad.addColorStop(0,   `rgba(220,240,255,${alpha})`);
+      satGrad.addColorStop(1,   'rgba(100,160,255,0)');
+      ctx.fillStyle = satGrad;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(star.x, star.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(240,250,255,${alpha})`;
+      ctx.fill();
+      ctx.restore();
+
+      if (star.nameKo || star.name) {
+        ctx.save();
+        ctx.font        = '11px -apple-system, sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.strokeStyle = 'rgba(0,0,20,0.95)';
+        ctx.lineWidth   = 2.5;
+        ctx.lineJoin    = 'round';
+        ctx.strokeText(star.nameKo || star.name, star.x + radius + 4, star.y);
+        ctx.fillStyle = belowHorizon ? 'rgba(150,210,255,0.5)' : 'rgba(180,225,255,0.9)';
+        ctx.fillText(star.nameKo || star.name, star.x + radius + 4, star.y);
+        ctx.restore();
       }
     });
   }

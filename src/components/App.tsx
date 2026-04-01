@@ -12,7 +12,7 @@ import EventsScreen from './EventsScreen';
 import TabBar from './TabBar';
 import Popup from './Popup';
 
-const APP_VERSION = 'v2.18';
+const APP_VERSION = 'v2.21';
 
 const initialSkyState: SkyState = {
   lat: null, lon: null,
@@ -21,7 +21,9 @@ const initialSkyState: SkyState = {
   date: new Date(), permGranted: false,
   arMode: 'virtual', fov: 60,
   toggles: { stars: true, constellations: true, moon: true, planets: true },
-  searchTarget: null, hasSensor: false,
+  searchTarget: null, hasSensor: false, flyLockUntil: 0,
+  rawAlpha: 0, rawBeta: 0, rawGamma: 0,
+  rawAz: 0, rawAlt: 0, azDelta: 0, sensorSource: '',
 };
 
 export default function App() {

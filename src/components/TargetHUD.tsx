@@ -11,6 +11,7 @@ interface Props {
 export default function TargetHUD({ target, skyStateRef, onClose }: Props) {
   const infoRef = useRef<HTMLSpanElement>(null);
   const hudRef = useRef<HTMLDivElement>(null);
+  const flyingRef = useRef(false);
 
   useEffect(() => {
     if (!target) return;
@@ -48,15 +49,37 @@ export default function TargetHUD({ target, skyStateRef, onClose }: Props) {
 
   if (!target) return null;
 
+  const flyToTarget = () => {
+    if (!target || flyingRef.current) return;
+    flyingRef.current = true;
+    const s = skyStateRef.current;
+    const startAz  = s.deviceAz;
+    const startAlt = s.deviceAlt;
+    const dAz = ((target.az - startAz + 540) % 360) - 180;
+    const duration = 900;
+    s.flyLockUntil = Date.now() + duration + 300; // suppress sensor during animation
+    const t0 = performance.now();
+    function step(now: number) {
+      const t = Math.min(1, (now - t0) / duration);
+      const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      skyStateRef.current.deviceAz  = ((startAz + dAz * ease) + 360) % 360;
+      skyStateRef.current.deviceAlt = Math.max(-85, Math.min(85, startAlt + (target!.alt - startAlt) * ease));
+      if (t < 1) requestAnimationFrame(step);
+      else flyingRef.current = false;
+    }
+    requestAnimationFrame(step);
+  };
+
   return (
     <div
       ref={hudRef}
-      className="absolute left-1/2 -translate-x-1/2 bg-[rgba(4,8,20,0.88)] border border-yellow-400/40 rounded-full px-4 py-2 flex items-center gap-2.5 backdrop-blur-md pointer-events-auto whitespace-nowrap shadow-lg z-[95]"
+      onClick={flyToTarget}
+      className="absolute left-1/2 -translate-x-1/2 bg-[rgba(4,8,20,0.88)] border border-yellow-400/40 rounded-full px-4 py-2 flex items-center gap-2.5 backdrop-blur-md pointer-events-auto whitespace-nowrap shadow-lg z-[95] cursor-pointer active:bg-[rgba(20,30,60,0.95)]"
       style={{ bottom: 'calc(var(--tab-h) + var(--safe-bottom) + 88px)' }}
     >
       <span ref={infoRef} className="text-sm font-medium text-yellow-300/95 tracking-tight" />
       <button
-        onClick={onClose}
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
         className="bg-transparent border-none text-yellow-300/60 text-base cursor-pointer leading-none p-0"
       >✕</button>
     </div>
