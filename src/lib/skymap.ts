@@ -10,6 +10,10 @@ export interface PlanetArrowHit { planet: Planet; bx: number; by: number; br: nu
 let _planetArrowHits: PlanetArrowHit[] = [];
 export function getPlanetArrowHits(): PlanetArrowHit[] { return _planetArrowHits; }
 
+export interface MoonArrowHit { moon: MoonData; bx: number; by: number; br: number; }
+let _moonArrowHit: MoonArrowHit | null = null;
+export function getMoonArrowHit(): MoonArrowHit | null { return _moonArrowHit; }
+
 interface PlanetVisCfg {
   baseR: number;
   c1: string;
@@ -151,7 +155,7 @@ function drawPlanetEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number
   return { bx, by, br };
 }
 
-function drawMoonEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number, projX: number, projY: number, moon: MoonData): void {
+function drawMoonEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number, projX: number, projY: number, moon: MoonData): { bx: number; by: number; br: number } | null {
   const cx = W / 2, cy = H / 2;
   const angle = Math.atan2(projY - cy, projX - cx);
   const cos = Math.cos(angle), sin = Math.sin(angle);
@@ -162,7 +166,7 @@ function drawMoonEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number, 
   if (cos < -1e-9) t = Math.min(t, (m - cx) / cos);
   if (sin > 1e-9)  t = Math.min(t, (H - m - cy) / sin);
   if (sin < -1e-9) t = Math.min(t, (m - cy) / sin);
-  if (!isFinite(t) || t <= 0) return;
+  if (!isFinite(t) || t <= 0) return null;
 
   const bx = cx + cos * t;
   const by = cy + sin * t;
@@ -215,6 +219,7 @@ function drawMoonEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number, 
   ctx.fillText('달', bx, by + br + 3);
 
   ctx.restore();
+  return { bx, by, br };
 }
 
 function drawSearchTargetEdgeArrow(ctx: CanvasRenderingContext2D, W: number, H: number, projX: number, projY: number, name: string, icon: string): void {
@@ -606,6 +611,7 @@ export function renderSky(canvas: HTMLCanvasElement, state: SkyState): void {
     });
   }
 
+  _moonArrowHit = null; // reset each frame
   if (tog.moon && moon) {
     const pos = project(moon.altitude, moon.azimuth, deviceAz, deviceAlt, W, H, fov);
     const moonBelow = moon.altitude < 0;
@@ -645,7 +651,8 @@ export function renderSky(canvas: HTMLCanvasElement, state: SkyState): void {
       ctx.fillText('달', pos.x, pos.y + R + 14);
       ctx.restore();
     } else if (moon.altitude > -3) {
-      drawMoonEdgeArrow(ctx, W, H, pos.x, pos.y, moon);
+      const mHit = drawMoonEdgeArrow(ctx, W, H, pos.x, pos.y, moon);
+      if (mHit) _moonArrowHit = { moon, ...mHit };
     }
   }
 

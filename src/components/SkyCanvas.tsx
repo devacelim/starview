@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react';
 import type { MutableRefObject } from 'react';
 import type { SkyState, HitResult } from '../types';
-import { renderSky, hitTest, getPlanetArrowHits } from '../lib/skymap';
+import { renderSky, hitTest, getPlanetArrowHits, getMoonArrowHit } from '../lib/skymap';
 
 interface Props {
   skyStateRef: MutableRefObject<SkyState>;
@@ -107,12 +107,18 @@ export default function SkyCanvas({ skyStateRef, onHit, onHover }: Props) {
     const onClick = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
       const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
-      // Check planet edge arrow hit areas first
+      // Check planet edge arrow hit areas
       for (const ah of getPlanetArrowHits()) {
         if (Math.hypot(cx - ah.bx, cy - ah.by) <= ah.br + 8) {
           onHit({ type: 'planet_arrow', data: ah.planet }, e.clientX, e.clientY);
           return;
         }
+      }
+      // Check moon edge arrow hit area
+      const mah = getMoonArrowHit();
+      if (mah && Math.hypot(cx - mah.bx, cy - mah.by) <= mah.br + 8) {
+        onHit({ type: 'moon_arrow', data: mah.moon }, e.clientX, e.clientY);
+        return;
       }
       const hit = hitTest(canvas, cx, cy, skyStateRef.current);
       if (hit) onHit(hit, e.clientX, e.clientY);

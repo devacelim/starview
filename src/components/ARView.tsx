@@ -62,8 +62,12 @@ export default function ARView({
     const update = () => {
       const s = skyStateRef.current;
       if (lockBtnRef.current) {
-        lockBtnRef.current.style.opacity = s.viewLocked ? '1' : '0';
-        lockBtnRef.current.style.pointerEvents = s.viewLocked ? 'auto' : 'none';
+        const locked = s.viewLocked;
+        lockBtnRef.current.textContent = locked ? '🔒' : '🔓';
+        lockBtnRef.current.style.borderColor = locked
+          ? 'rgba(251,146,60,0.75)' : 'rgba(100,149,237,0.35)';
+        lockBtnRef.current.style.backgroundColor = locked
+          ? 'rgba(69,10,10,0.85)' : 'rgba(0,8,24,0.7)';
       }
       if (hudDirRef.current)
         hudDirRef.current.textContent = `${azToCompass(s.deviceAz)} ${Math.round(s.deviceAz)}°`;
@@ -135,6 +139,12 @@ export default function ARView({
       onSearchTargetSet({ az: p.azimuth, alt: p.altitude, name: p.name, icon: p.icon });
       return;
     }
+    if (hit.type === 'moon_arrow') {
+      const m = hit.data as MoonData;
+      flyAndLock(m.azimuth, m.altitude);
+      onSearchTargetSet({ az: m.azimuth, alt: m.altitude, name: '달', icon: '🌕' });
+      return;
+    }
     let title = '', bodyHtml = '';
     if (hit.type === 'star') {
       const s = hit.data as Star;
@@ -191,25 +201,25 @@ export default function ARView({
         </div>
       </div>
 
-      {/* AR mode toggle button */}
-      <button
-        onClick={onARModeToggle}
-        className="absolute w-10 h-10 rounded-full border border-blue-400/40 bg-black/70 backdrop-blur-md flex items-center justify-center text-lg cursor-pointer z-[95]"
+      {/* Right-side button column: AR toggle + lock */}
+      <div
+        className="absolute flex flex-col gap-2 z-[96]"
         style={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)', right: '16px' }}
       >
-        {arMode === 'ar' ? '🔭' : '📷'}
-      </button>
-
-      {/* View lock button — visible only when locked */}
-      <button
-        ref={lockBtnRef}
-        onClick={() => { skyStateRef.current.viewLocked = false; }}
-        className="absolute w-10 h-10 rounded-full border border-orange-400/70 bg-orange-950/85 backdrop-blur-md flex items-center justify-center text-base cursor-pointer z-[96]"
-        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 60px)', right: '16px', opacity: 0, pointerEvents: 'none' }}
-        title="잠금 해제"
-      >
-        🔒
-      </button>
+        <button
+          onClick={onARModeToggle}
+          className="w-10 h-10 rounded-full border border-blue-400/40 bg-black/70 backdrop-blur-md flex items-center justify-center text-lg cursor-pointer"
+        >
+          {arMode === 'ar' ? '🔭' : '📷'}
+        </button>
+        <button
+          ref={lockBtnRef}
+          onClick={() => { skyStateRef.current.viewLocked = !skyStateRef.current.viewLocked; }}
+          className="w-10 h-10 rounded-full backdrop-blur-md flex items-center justify-center text-base cursor-pointer border"
+        >
+          🔓
+        </button>
+      </div>
 
       {/* Hover tooltip */}
       {tooltip && (

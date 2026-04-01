@@ -78,7 +78,7 @@ export interface SkyState {
   sensorSource: string;
 }
 
-export type HitType = 'star' | 'moon' | 'planet' | 'planet_arrow';
+export type HitType = 'star' | 'moon' | 'planet' | 'planet_arrow' | 'moon_arrow';
 export interface HitResult {
   type: HitType;
   data: Star | MoonData | Planet;
