@@ -7,10 +7,9 @@ import type { MutableRefObject } from 'react';
 import type { SkyState } from '../types';
 
 // Low-pass filter constants
-const AZ_ALPHA  = 0.12;
-const ALT_ALPHA = 0.15;
-const AZ_GLITCH  = 40;
-const ALT_GLITCH = 35;
+const SMOOTH_ALPHA = 0.15;          // vector lerp factor (0→frozen, 1→raw)
+const GLITCH_THRESHOLD = 0.6;       // max unit-vector distance per frame (~35°)
+const GLITCH_ACCEPT_COUNT = 8;      // accept raw value after N consecutive rejections
 
 type DOEWithPermission = typeof DeviceOrientationEvent & {
   requestPermission?: () => Promise<string>;
@@ -37,33 +36,64 @@ function deviceOrientationToAzAlt(alpha: number, beta: number, gamma: number): {
   return { az, alt };
 }
 
+/** Convert az/alt (degrees) to unit vector [east, north, up] */
+function azAltToVec(az: number, alt: number): [number, number, number] {
+  const D = Math.PI / 180;
+  const ca = Math.cos(alt * D);
+  return [Math.sin(az * D) * ca, Math.cos(az * D) * ca, Math.sin(alt * D)];
+}
+
+/** Convert unit vector [east, north, up] back to { az, alt } in degrees */
+function vecToAzAlt(e: number, n: number, u: number): { az: number; alt: number } {
+  const D = Math.PI / 180;
+  const len = Math.sqrt(e * e + n * n + u * u) || 1;
+  const alt = Math.asin(Math.max(-1, Math.min(1, u / len))) / D;
+  const az  = ((Math.atan2(e / len, n / len) / D) + 360) % 360;
+  return { az, alt };
+}
+
 export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
   const startedRef = useRef(false);
   const hasAbsoluteSensorRef = useRef(false);
-  const hasFirstReadingRef = useRef(false);  // bypass filter on first event
+  const hasFirstReadingRef = useRef(false);
+  const smoothVec = useRef<[number, number, number]>([0, 1, 0]);
+  const glitchRejectCount = useRef(0);
 
-  function smoothAz(rawAz: number): number {
-    if (!hasFirstReadingRef.current) return rawAz;
-    const dAz = ((rawAz - skyStateRef.current.deviceAz + 540) % 360) - 180;
+  /** Smooth in 3D vector space — avoids azimuth singularity near zenith */
+  function smoothOrientation(rawAz: number, rawAlt: number): { az: number; alt: number } {
+    const raw = azAltToVec(rawAz, rawAlt);
 
-    // Near zenith/nadir, Euler decomposition amplifies sensor noise →
-    // widen glitch gate proportionally to elevation angle
-    const absAlt = Math.abs(skyStateRef.current.deviceAlt);
-    const glitch = AZ_GLITCH * (1 + Math.max(0, absAlt - 20) / 15);
-    //  20° → 40,  35° → 80,  50° → 120,  65° → 160
+    if (!hasFirstReadingRef.current) {
+      smoothVec.current = raw;
+      return { az: rawAz, alt: rawAlt };
+    }
 
-    if (Math.abs(dAz) > glitch) return skyStateRef.current.deviceAz;
+    // Glitch detection: squared distance between unit vectors
+    const dx = raw[0] - smoothVec.current[0];
+    const dy = raw[1] - smoothVec.current[1];
+    const dz = raw[2] - smoothVec.current[2];
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-    // Stronger smoothing at high elevation (sensor is noisier)
-    const alpha = absAlt > 50 ? AZ_ALPHA * 0.5 : AZ_ALPHA;
-    return (skyStateRef.current.deviceAz + dAz * alpha + 360) % 360;
-  }
+    if (dist > GLITCH_THRESHOLD && glitchRejectCount.current < GLITCH_ACCEPT_COUNT) {
+      // Likely a sensor glitch — reject, but count consecutive rejections
+      glitchRejectCount.current++;
+      return { az: skyStateRef.current.deviceAz, alt: skyStateRef.current.deviceAlt };
+    }
 
-  function smoothAlt(rawAlt: number): number {
-    if (!hasFirstReadingRef.current) return rawAlt;
-    const dAlt = rawAlt - skyStateRef.current.deviceAlt;
-    if (Math.abs(dAlt) > ALT_GLITCH) return skyStateRef.current.deviceAlt;
-    return skyStateRef.current.deviceAlt + dAlt * ALT_ALPHA;
+    // Accept: either within threshold, or too many consecutive rejections (real movement)
+    glitchRejectCount.current = 0;
+    const a = SMOOTH_ALPHA;
+    const sv = smoothVec.current;
+    let ve = sv[0] + (raw[0] - sv[0]) * a;
+    let vn = sv[1] + (raw[1] - sv[1]) * a;
+    let vu = sv[2] + (raw[2] - sv[2]) * a;
+
+    // Re-normalize
+    const len = Math.sqrt(ve * ve + vn * vn + vu * vu) || 1;
+    ve /= len; vn /= len; vu /= len;
+    smoothVec.current = [ve, vn, vu];
+
+    return vecToAzAlt(ve, vn, vu);
   }
 
   function handleAbsolute(e: DeviceOrientationEvent) {
@@ -72,9 +102,10 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     if (e.alpha == null || e.beta == null || e.gamma == null) return;
 
     // Rotation-matrix approach: stable at any elevation (no gimbal lock)
-    const { az, alt } = deviceOrientationToAzAlt(e.alpha, e.beta, e.gamma);
-    skyStateRef.current.deviceAz   = smoothAz(az);
-    skyStateRef.current.deviceAlt  = smoothAlt(alt);
+    const raw = deviceOrientationToAzAlt(e.alpha, e.beta, e.gamma);
+    const { az, alt } = smoothOrientation(raw.az, raw.alt);
+    skyStateRef.current.deviceAz  = az;
+    skyStateRef.current.deviceAlt = alt;
     skyStateRef.current.deviceRoll = e.gamma;
     hasFirstReadingRef.current = true;
   }
@@ -96,16 +127,18 @@ export function useDeviceOrientation(skyStateRef: MutableRefObject<SkyState>) {
     if (hasCompass) {
       // iOS webkitCompassHeading: already tilt-compensated, use directly for azimuth.
       // Altitude: compute from beta/gamma via rotation matrix formula (gamma-aware).
-      const D   = Math.PI / 180;
-      const alt = Math.asin(Math.max(-1, Math.min(1, -Math.cos(e.beta * D) * Math.cos((e.gamma ?? 0) * D)))) / D;
-      skyStateRef.current.deviceAz  = smoothAz(wk!);
-      skyStateRef.current.deviceAlt = smoothAlt(alt);
+      const D    = Math.PI / 180;
+      const rawAlt = Math.asin(Math.max(-1, Math.min(1, -Math.cos(e.beta * D) * Math.cos((e.gamma ?? 0) * D)))) / D;
+      const smoothed = smoothOrientation(wk!, rawAlt);
+      skyStateRef.current.deviceAz  = smoothed.az;
+      skyStateRef.current.deviceAlt = smoothed.alt;
     } else {
       // Non-iOS fallback: full rotation matrix for both az and alt
       const alpha = hasAbsAlpha ? e.alpha! : (e.alpha ?? 0);
-      const { az, alt } = deviceOrientationToAzAlt(alpha, e.beta, e.gamma ?? 0);
-      skyStateRef.current.deviceAz  = smoothAz(az);
-      skyStateRef.current.deviceAlt = smoothAlt(alt);
+      const raw = deviceOrientationToAzAlt(alpha, e.beta, e.gamma ?? 0);
+      const smoothed = smoothOrientation(raw.az, raw.alt);
+      skyStateRef.current.deviceAz  = smoothed.az;
+      skyStateRef.current.deviceAlt = smoothed.alt;
     }
     hasFirstReadingRef.current = true;
   }
