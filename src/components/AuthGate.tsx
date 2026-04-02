@@ -13,14 +13,14 @@ export default function AuthGate({ children }: Props) {
   const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) validateAndSet(session);
-      else setLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) validateAndSet(session);
-      else { setSession(null); setLoading(false); }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+        if (session) validateAndSet(session);
+        else setLoading(false);
+      } else if (event === 'SIGNED_OUT') {
+        setSession(null);
+        setLoading(false);
+      }
     });
 
     return () => subscription.unsubscribe();
