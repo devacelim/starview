@@ -57,6 +57,7 @@ export default function AuthGate({ children }: Props) {
       <div className="text-center">
         <div className="text-4xl mb-2">✦</div>
         <h1 className="text-white text-2xl font-light tracking-widest">STARVIEW</h1>
+        <p className="text-white/30 text-xs mt-1 tracking-widest">v2.27</p>
       </div>
 
       {error && (
