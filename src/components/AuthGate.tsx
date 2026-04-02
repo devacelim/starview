@@ -13,10 +13,16 @@ export default function AuthGate({ children }: Props) {
   const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => {
+    // localStorage에 저장된 세션 즉시 확인
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) validateAndSet(session);
+      else setLoading(false);
+    });
+
+    // OAuth 콜백 / 로그아웃 등 상태 변화 감지
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+      if (event === 'SIGNED_IN') {
         if (session) validateAndSet(session);
-        else setLoading(false);
       } else if (event === 'SIGNED_OUT') {
         setSession(null);
         setLoading(false);
